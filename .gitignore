@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.env
+.env.*.local
+.vite/
+*.tsbuildinfo
+.DS_Store
+
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
