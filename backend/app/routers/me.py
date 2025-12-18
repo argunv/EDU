@@ -1,0 +1,296 @@
+import logging
+from datetime import date, timedelta
+from uuid import UUID, uuid4
+
+from fastapi import APIRouter, Query, Depends, HTTPException
+from sqlalchemy.orm import Session
+
+from app.deps import get_db, DbSession, CurrentUser
+from app.models.user import User
+from app.models.parent import ParentChild
+from app.models.class_model import Class
+from app.models.schedule import ScheduleSlot
+from app.models.subject import Subject
+from app.models.homework import Homework
+from app.models.grade import Grade
+from app.schemas.me import (
+    ChildResponse,
+    ScheduleItemResponse,
+    HomeworkItemResponse,
+    SubjectProgressResponse,
+)
+
+logger = logging.getLogger(__name__)
+router = APIRouter(prefix="/me", tags=["me"])
+
+
+def _resolve_child_id(current_user: User, child_id: str | None, db: Session) -> UUID:
+    """
+    Возвращает users.id ребёнка (role=student). Для student всегда current_user.id.
+    Для parent: без child_id — первый из parent_children; иначе проверка связи и существования user.
+    При ошибке — HTTPException 400/403/404 (логируем с correlation_id).
+    """
+    if current_user.role == "student":
+        return current_user.id
+
+    if current_user.role != "parent":
+        cid = str(uuid4())[:12]
+        logger.warning("me resolve_child status=403 correlation_id=%s role=%s", cid, current_user.role)
+        raise HTTPException(status_code=403, detail="Роль не поддерживается")
+
+    if not child_id:
+        link = (
+            db.query(ParentChild)
+            .filter(ParentChild.parent_id == current_user.id)
+            .order_by(ParentChild.id)
+            .first()
+        )
+        if not link:
+            cid = str(uuid4())[:12]
+            logger.warning("me resolve_child status=404 correlation_id=%s detail=no_children", cid)
+            raise HTTPException(status_code=404, detail="Нет привязанных детей")
+        u = db.query(User).filter(User.id == link.child_id).first()
+        if not u or u.role != "student":
+            cid = str(uuid4())[:12]
+            logger.warning("me resolve_child status=404 correlation_id=%s detail=child_user_not_found", cid)
+            raise HTTPException(status_code=404, detail="Ребёнок не найден")
+        return link.child_id
+
+    try:
+        cid_uuid = UUID(child_id)
+    except (ValueError, TypeError):
+        cid = str(uuid4())[:12]
+        logger.warning("me resolve_child status=400 correlation_id=%s detail=invalid_child_id", cid)
+        raise HTTPException(status_code=400, detail="Некорректный child_id")
+
+    link = db.query(ParentChild).filter(
+        ParentChild.parent_id == current_user.id,
+        ParentChild.child_id == cid_uuid,
+    ).first()
+    if not link:
+        u = db.query(User).filter(User.id == cid_uuid).first()
+        if not u:
+            cid = str(uuid4())[:12]
+            logger.warning("me resolve_child status=404 correlation_id=%s detail=child_user_not_found", cid)
+            raise HTTPException(status_code=404, detail="Ребёнок не найден")
+        cid = str(uuid4())[:12]
+        logger.warning("me resolve_child status=403 correlation_id=%s detail=child_not_linked", cid)
+        raise HTTPException(status_code=403, detail="Нет доступа к этому ребёнку")
+
+    u = db.query(User).filter(User.id == cid_uuid).first()
+    if not u or u.role != "student":
+        cid = str(uuid4())[:12]
+        logger.warning("me resolve_child status=404 correlation_id=%s detail=child_user_not_student", cid)
+        raise HTTPException(status_code=404, detail="Ребёнок не найден")
+
+    return cid_uuid
+
+
+@router.get("/children", response_model=list[ChildResponse])
+def get_my_children(db: DbSession = None, current_user: CurrentUser = None):
+    if current_user.role == "student":
+        cls = db.query(Class).filter(Class.id == current_user.class_id).first() if current_user.class_id else None
+        return [ChildResponse(
+            id=str(current_user.id),
+            name=current_user.name,
+            class_name=cls.name if cls else "",
+        )]
+    if current_user.role == "parent":
+        links = db.query(ParentChild).filter(ParentChild.parent_id == current_user.id).all()
+        out = []
+        for l in links:
+            u = db.query(User).filter(User.id == l.child_id).first()
+            if u:
+                cls = db.query(Class).filter(Class.id == u.class_id).first() if u.class_id else None
+                out.append(ChildResponse(id=str(u.id), name=u.name, class_name=cls.name if cls else ""))
+        return out
+    return []
+
+
+# Дни недели для вычисления даты по day_label (Пн=0 … Пт=4)
+_DAY_LABEL_TO_WEEKDAY = {
+    "понедельник": 0, "monday": 0,
+    "вторник": 1, "tuesday": 1,
+    "среда": 2, "wednesday": 2,
+    "четверг": 3, "thursday": 3,
+    "пятница": 4, "friday": 4,
+}
+
+
+@router.get("/schedule", response_model=list[ScheduleItemResponse])
+def get_my_schedule(
+    view: str = Query("day"),
+    child_id: str | None = Query(None, alias="child_id"),
+    week_start_iso: str | None = Query(None, alias="week_start_iso"),
+    db: DbSession = None,
+    current_user: CurrentUser = None,
+):
+    cid = _resolve_child_id(current_user, child_id, db)
+    u = db.query(User).filter(User.id == cid).first()
+    if not u or u.role != "student" or not u.class_id:
+        cid_log = str(uuid4())[:12]
+        logger.warning("me schedule status=404 correlation_id=%s detail=user_not_student", cid_log)
+        raise HTTPException(status_code=404, detail="Пользователь не найден или не ученик")
+    cls = db.query(Class).filter(Class.id == u.class_id).first()
+    shift = (cls.shift if cls and cls.shift else "morning")
+    slots = db.query(ScheduleSlot).filter(
+        ScheduleSlot.class_id == u.class_id,
+        ScheduleSlot.shift == shift,
+        ScheduleSlot.is_cancelled != True,
+    ).order_by(ScheduleSlot.lesson_number).all()
+
+    # Для режима недели с указанной датой понедельника — подтягиваем оценки за соответствующие дни
+    week_start: date | None = None
+    if view == "week" and week_start_iso:
+        try:
+            week_start = date.fromisoformat(week_start_iso)
+        except ValueError:
+            pass
+    grades_by_key: dict[tuple[UUID, date], str] = {}
+    if week_start and slots:
+        week_end = week_start + timedelta(days=4)
+        grades_q = (
+            db.query(Grade.subject_id, Grade.date, Grade.value)
+            .filter(
+                Grade.student_id == cid,
+                Grade.date >= week_start,
+                Grade.date <= week_end,
+                Grade.subject_id.isnot(None),
+            )
+        ).all()
+        for subj_id, d, value in grades_q:
+            if value:
+                grades_by_key[(subj_id, d)] = value
+
+    result = []
+    for s in slots:
+        sub = db.query(Subject).filter(Subject.id == s.subject_id).first()
+        slot_date: date | None = None
+        if week_start is not None:
+            idx = _DAY_LABEL_TO_WEEKDAY.get((s.day_label or "").strip().lower())
+            if idx is not None:
+                slot_date = week_start + timedelta(days=idx)
+        grade_val: str | None = None
+        if slot_date and s.subject_id:
+            grade_val = grades_by_key.get((s.subject_id, slot_date))
+        result.append(ScheduleItemResponse(
+            id=str(s.id),
+            day_label=s.day_label,
+            lesson_number=s.lesson_number,
+            time=s.time,
+            subject=sub.name if sub else "",
+            teacher_name=s.teacher_name,
+            room=s.room,
+            subject_id=str(s.subject_id) if s.subject_id else None,
+            grade=grade_val,
+        ))
+    return result
+
+
+@router.get("/homework", response_model=list[HomeworkItemResponse])
+def get_my_homework(
+    range_filter: str = Query("today", alias="range"),
+    child_id: str | None = Query(None, alias="child_id"),
+    db: DbSession = None,
+    current_user: CurrentUser = None,
+):
+    cid = _resolve_child_id(current_user, child_id, db)
+    u = db.query(User).filter(User.id == cid).first()
+    if not u or u.role != "student" or not u.class_id:
+        cid_log = str(uuid4())[:12]
+        logger.warning("me homework status=404 correlation_id=%s detail=user_not_student", cid_log)
+        raise HTTPException(status_code=404, detail="Пользователь не найден или не ученик")
+    today = date.today()
+    if range_filter == "today":
+        start = today
+        end = today
+    elif range_filter == "tomorrow":
+        start = today + timedelta(days=1)
+        end = start
+    else:
+        start = today
+        end = today + timedelta(days=7)
+    items = db.query(Homework).filter(
+        Homework.class_id == u.class_id,
+        Homework.due_date >= start,
+        Homework.due_date <= end,
+    ).all()
+    from app.models.subject import Subject
+    result = []
+    for h in items:
+        sub = db.query(Subject).filter(Subject.id == h.subject_id).first()
+        result.append(HomeworkItemResponse(
+            id=str(h.id),
+            due_date_label=h.due_date.strftime("%d.%m.%Y"),
+            subject=sub.name if sub else "",
+            text=h.text,
+        ))
+    return result
+
+
+def get_semester_range(year_start: int, semester: int) -> tuple[date, date]:
+    """
+    Учебный год начинается 1 сентября year_start.
+    Семестр 1: 1 сентября year_start – 31 января year_start+1.
+    Семестр 2: 1 февраля year_start+1 – 31 мая year_start+1.
+    """
+    if semester == 1:
+        return (date(year_start, 9, 1), date(year_start + 1, 1, 31))
+    return (date(year_start + 1, 2, 1), date(year_start + 1, 5, 31))
+
+
+_YEAR_MIN = 2000
+_YEAR_MAX = 2100
+
+
+@router.get("/progress", response_model=list[SubjectProgressResponse])
+def get_my_progress(
+    child_id: str | None = Query(None, alias="child_id"),
+    year_start: int | None = Query(None, description="Первый год учебного года (например 2024)"),
+    semester: int | None = Query(None, description="Семестр: 1 или 2"),
+    db: DbSession = None,
+    current_user: CurrentUser = None,
+):
+    if semester is None or semester not in (1, 2):
+        cid_log = str(uuid4())[:12]
+        logger.warning("me progress status=400 correlation_id=%s detail=invalid_semester", cid_log)
+        raise HTTPException(status_code=400, detail="semester должен быть 1 или 2")
+    semester = int(semester)
+    if year_start is None:
+        cid_log = str(uuid4())[:12]
+        logger.warning("me progress status=400 correlation_id=%s detail=year_start_required", cid_log)
+        raise HTTPException(status_code=400, detail="year_start обязателен")
+    year_start = int(year_start)
+    if not (_YEAR_MIN <= year_start <= _YEAR_MAX):
+        cid_log = str(uuid4())[:12]
+        logger.warning("me progress status=400 correlation_id=%s detail=year_start_out_of_range", cid_log)
+        raise HTTPException(
+            status_code=400,
+            detail=f"year_start должен быть от {_YEAR_MIN} до {_YEAR_MAX}",
+        )
+    cid = _resolve_child_id(current_user, child_id, db)
+    start_d, end_d = get_semester_range(year_start, semester)
+    q = db.query(Grade).filter(Grade.student_id == cid)
+    q = q.filter(Grade.date >= start_d, Grade.date <= end_d)
+    grades = q.all()
+    by_subject = {}
+    for g in grades:
+        sub_id = str(g.subject_id) if g.subject_id else "unknown"
+        if sub_id not in by_subject:
+            by_subject[sub_id] = {"grades": [], "grade_dates": [], "absences": 0, "subject_name": "", "teacher_name": ""}
+        if g.value == "Н":
+            by_subject[sub_id]["absences"] += 1
+        else:
+            by_subject[sub_id]["grades"].append(g.value)
+            by_subject[sub_id]["grade_dates"].append(g.date.isoformat())
+    result = []
+    for sid, data in by_subject.items():
+        s = db.query(Subject).filter(Subject.id == sid).first() if sid != "unknown" else None
+        result.append(SubjectProgressResponse(
+            subject=s.name if s else sid,
+            teacher_name=data["teacher_name"] or "",
+            grades=data["grades"],
+            grade_dates=data["grade_dates"],
+            absences_count=data["absences"],
+        ))
+    return result
