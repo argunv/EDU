@@ -1,0 +1,150 @@
+services:
+  # Креды только из .env (без дефолтов): без .env контейнер не стартует — нет слабых кредов в коде.
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"${POSTGRES_USER:-postgres}\""]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    restart: unless-stopped
+
+  # Брокер сообщений — только внутренняя сеть. Порты НЕ пробрасываем (best practice).
+  # Для доступа к RabbitMQ Management (15672) в dev используйте docker-compose.override.yml.
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 5672"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: web
+    # порты не пробрасываем, nginx обращается по имени сервиса
+    restart: unless-stopped
+
+  automigrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: api
+    command: sh -c "pip install alembic && sleep 5 && sh /app/run_migrate.sh"
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg2://postgres:postgres@postgres:5432/abh_edu}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  test:
+    profiles:
+      - test
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: api-test
+    environment:
+      DATABASE_URL: postgresql+psycopg2://postgres:postgres@postgres:5432/abh_edu_test
+    # timeout 900 = макс 15 мин на всё, затем контейнер завершится (exit 124), чтобы не висел
+    command: sh -c "timeout 900 sh -c 'python scripts/ensure_test_db.py && alembic upgrade head && pytest tests/ -v --cov=app --cov-report=term-missing --cov-fail-under=0'"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: api
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg2://postgres:postgres@postgres:5432/abh_edu}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      RABBITMQ_URL: ${RABBITMQ_URL:-amqp://guest:guest@rabbitmq:5672/}
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-15}
+      REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS:-7}
+      NOTIFIER_QUEUE: ${NOTIFIER_QUEUE:-email_tasks}
+      CORS_ORIGINS: ${CORS_ORIGINS:-'["http://localhost:5173","http://localhost:3000","http://localhost","http://localhost:80"]'}
+      RATE_LIMIT_LOGIN: ${RATE_LIMIT_LOGIN:-5/60}
+      RATE_LIMIT_REGISTER: ${RATE_LIMIT_REGISTER:-3/60}
+      RATE_LIMIT_FORGOT: ${RATE_LIMIT_FORGOT:-3/300}
+      RATE_LIMIT_RESET: ${RATE_LIMIT_RESET:-5/60}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+
+  notifier:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: notifier
+    environment:
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      NOTIFIER_QUEUE: email_tasks
+      SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-noreply@example.com}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import pika; exit(0)'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  # Единственная точка входа наружу: nginx на порту 11223. API и статика проксируются внутри.
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "11223:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - api
+      - web
+    restart: unless-stopped
+
+volumes:
+  pg_data: {}
