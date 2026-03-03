@@ -1,0 +1,50 @@
+# Dev overrides: монтирование кода, hot-reload и проброс портов для отладки с хоста.
+# Используется автоматически при docker compose up (основной compose не меняем).
+# В production не используйте этот файл (или не пробрасывайте порты).
+
+services:
+  # Порты только для локальной разработки: подключение к БД/Redis/RabbitMQ/API с хоста.
+  postgres:
+    ports:
+      - "127.0.0.1:5432:5432"
+
+  redis:
+    ports:
+      - "127.0.0.1:6379:6379"
+
+  rabbitmq:
+    ports:
+      - "127.0.0.1:5672:5672"
+      - "127.0.0.1:15672:15672"
+
+  api:
+    # Нужен для Vite dev proxy (http://localhost:5173 -> http://localhost:8000).
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - ./backend:/app
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--log-config", "log_config.json"]
+
+  notifier:
+    volumes:
+      - ./backend:/app
+    # перезапустите контейнер вручную после правок: docker compose restart notifier
+
+  # Фронт: монтируем локальный dist — после npm run build изменения подхватываются без перезапуска контейнера.
+  # Убрать в prod (в prod раздаётся только образ без volume).
+  web:
+    volumes:
+      - ./dist:/usr/share/nginx/html:ro
+
+  # Автосборка фронта в dev: пересобирает dist при изменениях в src.
+  frontend-watch:
+    image: node:20-alpine
+    working_dir: /app
+    command: sh -c "npm ci && npm run build -- --watch"
+    volumes:
+      - ./:/app
+      - frontend_node_modules:/app/node_modules
+    restart: unless-stopped
+
+volumes:
+  frontend_node_modules:
