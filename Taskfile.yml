@@ -1,0 +1,101 @@
+version: "3"
+dotenv: [".env"]
+vars:
+  COMPOSE_DEV: "-f docker-compose.yml -f docker-compose.override.yml"
+
+tasks:
+  migrate:
+    desc: Run Alembic migrations via Docker (starts postgres if needed, then runs automigrate)
+    cmd: docker compose up -d postgres && docker compose run --rm automigrate
+
+  test:
+    desc: Запуск API-тестов в Docker (postgres → тестовая БД → миграции → pytest + coverage)
+    cmd: |
+      docker compose --profile test build test
+      docker compose up -d postgres
+      until docker compose exec -T postgres pg_isready -U "{{.POSTGRES_USER}}" 2>/dev/null; do sleep 2; done
+      docker compose run --rm test
+
+  seed:
+    desc: Insert dev/test data into DB (Docker). Без конфликтов при повторном запуске. Требует, чтобы postgres был запущен, а миграции применены.
+    cmd: docker compose exec -T postgres psql -U "{{.POSTGRES_USER}}" -d "{{.POSTGRES_DB}}" < backend/scripts/seed.sql
+
+  api:
+    desc: Run FastAPI server
+    dir: backend
+    cmd: uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 --log-config log_config.json
+
+  frontend:
+    desc: Run frontend dev server (Vite)
+    cmd: npm run dev
+
+  test-backend:
+    desc: Run backend tests локально (без Docker; без PostgreSQL — только unit-тесты)
+    dir: backend
+    cmd: poetry run pytest -v
+
+  test-backend-cov:
+    desc: Run backend tests с покрытием локально (нужен PostgreSQL и БД abh_edu_test)
+    dir: backend
+    cmd: poetry run pytest -v --cov=app --cov-report=term-missing --cov-fail-under=80
+    env:
+      DATABASE_URL: postgresql+psycopg2://postgres:postgres@localhost:5432/abh_edu_test
+
+  lint-backend:
+    desc: Run flake8 and bandit
+    dir: backend
+    cmd: poetry run flake8 app && poetry run bandit -r app
+
+  up:
+    desc: Start all services with docker-compose
+    cmd: docker compose up -d
+
+  down:
+    desc: Stop all services
+    cmd: docker compose down -v
+
+  build:
+    desc: Build all services
+    cmd: docker compose build
+
+  # Dev compose (с монтированием кода и --reload)
+  dev-down:
+    desc: Stop all services (dev compose)
+    cmd: docker compose {{.COMPOSE_DEV}} down -v
+
+  dev-build:
+    desc: Build all services (dev compose)
+    cmd: docker compose {{.COMPOSE_DEV}} build
+
+  dev-up:
+    desc: Start all services (dev compose)
+    cmd: docker compose {{.COMPOSE_DEV}} up -d
+
+  dev-seed:
+    desc: Seed DB (dev compose; postgres должен быть запущен)
+    cmd: docker compose {{.COMPOSE_DEV}} exec -T postgres psql -U "{{.POSTGRES_USER}}" -d "{{.POSTGRES_DB}}" < backend/scripts/seed_dev.sql
+
+  dev:
+    desc: Полный сброс и подъём в dev-режиме — clear, down -v, build, up, migrate, seed
+    cmd: |
+      clear || true
+      docker compose {{.COMPOSE_DEV}} down -v
+      docker compose {{.COMPOSE_DEV}} build || docker compose {{.COMPOSE_DEV}} build
+      docker compose {{.COMPOSE_DEV}} up -d
+      sleep 10
+      docker compose {{.COMPOSE_DEV}} run --rm automigrate
+      docker compose {{.COMPOSE_DEV}} exec -T postgres psql -U "{{.POSTGRES_USER}}" -d "{{.POSTGRES_DB}}" < backend/scripts/seed_dev.sql
+  
+  dbdown:
+    desc: Remove all data from database using truncate
+    cmd: psql "postgresql://{{.POSTGRES_USER}}:{{.POSTGRES_PASSWORD}}@localhost:5432/{{.POSTGRES_DB}}" -c "DO \$\$ DECLARE r RECORD; BEGIN FOR r IN (SELECT tablename FROM pg_tables WHERE schemaname = current_schema()) LOOP EXECUTE 'TRUNCATE TABLE ' || quote_ident(r.tablename) || ' RESTART IDENTITY CASCADE;'; END LOOP; END \$\$;"
+
+  create-admin:
+    desc: Creates admin from .env variables ADMIN_EMAIL, ADMIN_NAME, ADMIN_PASSWORD
+    cmd: |
+      E=$(grep '^ADMIN_EMAIL=' .env | cut -d= -f2- | tr -d '"' | xargs)
+      N=$(grep '^ADMIN_NAME=' .env | cut -d= -f2- | tr -d '"' | xargs)
+      N=$(echo "$N" | sed "s/'/''/g")
+      P=$(grep '^ADMIN_PASSWORD=' .env | cut -d= -f2- | tr -d '"' | xargs)
+      H=$(htpasswd -nbBC 10 "" "$P" | sed 's/^.*://' | sed 's/\$2y/\$2b/')
+      printf 'INSERT INTO users (id, email, password_hash, name, role) VALUES (gen_random_uuid(), lower('\''%s'\''), '\''%s'\'', '\''%s'\'', '\''admin'\'') ON CONFLICT (email) DO UPDATE SET role = '\''admin'\'', password_hash = EXCLUDED.password_hash, name = EXCLUDED.name;\n' "$E" "$H" "$N" | docker compose exec -T postgres psql -U "{{.POSTGRES_USER}}" -d "{{.POSTGRES_DB}}"
