@@ -1,0 +1,10 @@
+[Unit]
+Description=UUP auto-update (oneshot)
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/srv/uup/scripts/auto_update.sh
+
+[Install]
