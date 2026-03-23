@@ -9,7 +9,6 @@
 import uuid
 from sqlalchemy import Column, String, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import relationship
 
 from app.models.base import Base
 
@@ -23,4 +22,3 @@ class Student(Base):
     name = Column(String(255), nullable=False)
     class_name = Column(String(50), nullable=True)  # denormalized for display
 
-    class_ = relationship("Class", back_populates="students")

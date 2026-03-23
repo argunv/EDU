@@ -1,6 +1,6 @@
 import uuid
 from datetime import date
-from sqlalchemy import Column, String, Date, ForeignKey
+from sqlalchemy import CheckConstraint, Column, String, Date, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID
 
 from app.models.base import Base
@@ -8,6 +8,9 @@ from app.models.base import Base
 
 class Grade(Base):
     __tablename__ = "grades"
+    __table_args__ = (
+        CheckConstraint("(value is null) or (value in ('2','3','4','5','Н'))", name="ck_grades_value"),
+    )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     student_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)  # user_id of student

@@ -20,5 +20,4 @@ class Class(Base):
     max_lessons_per_week = Column(Integer, nullable=True)
     archived = Column(Boolean, nullable=False, default=False)
 
-    students = relationship("Student", back_populates="class_")
     schedule_slots = relationship("ScheduleSlot", back_populates="class_")

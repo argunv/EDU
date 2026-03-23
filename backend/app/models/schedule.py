@@ -1,12 +1,8 @@
 """
 Расписание: слоты уроков по классам.
 
-Решение: учитель в слоте хранится как teacher_name (строка), а не teacher_id (FK на users).
-Причины: упрощение миграций и отображения; привязка к пользователю делается по совпадению
-имени с User.name для учителей (TeacherClass/TeacherSubject задают, кто какой предмет ведёт).
-Ограничение: при смене ФИО учителя в профиле расписание не обновляется автоматически —
-нужно переназначить слоты вручную или синхронизировать имя при сохранении пользователя.
-Подробнее: backend/docs/decisions/001_schedule_teacher_name.md
+Source-of-truth для назначения учителя: teacher_id (FK на users).
+teacher_name сохраняется как человекочитаемый snapshot для UI и уведомлений.
 """
 import uuid
 from sqlalchemy import Column, String, Integer, Boolean, ForeignKey
@@ -22,6 +18,7 @@ class ScheduleSlot(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     class_id = Column(UUID(as_uuid=True), ForeignKey("classes.id", ondelete="CASCADE"), nullable=False)
     subject_id = Column(UUID(as_uuid=True), ForeignKey("subjects.id", ondelete="CASCADE"), nullable=False)
+    teacher_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     day_label = Column(String(50), nullable=False)  # Понедельник, Вторник, ...
     lesson_number = Column(Integer, nullable=False)
     time = Column(String(10), nullable=False)  # 08:30
