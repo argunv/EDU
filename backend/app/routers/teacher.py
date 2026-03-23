@@ -11,9 +11,10 @@ from app.models.class_model import Class
 from app.models.subject import Subject
 from app.models.user import User
 from app.models.grade import Grade
-from app.models.teacher import TeacherClass
 from app.models.homework import Homework
+from app.models.role_profiles import TeacherAssignment
 from app.models.schedule import ScheduleSlot
+from app.services.relation_access import get_active_student_ids_for_class, get_teacher_class_ids, has_user_role
 from app.schemas.teacher import (
     LessonResponse,
     LessonStudentResponse,
@@ -36,23 +37,25 @@ from app.services.journal_dates import (
 )
 
 
-def _schedule_weekdays_teacher(db, class_id: UUID, subject_id: UUID | None, teacher_name: str) -> set[int]:
+def _schedule_weekdays_teacher(db, class_id: UUID, subject_id: UUID | None, teacher_name: str, teacher_id: UUID) -> set[int]:
     """Дни недели (0–4), в которые у учителя по расписанию урок в классе по предмету."""
     q = db.query(ScheduleSlot).filter(
         ScheduleSlot.class_id == class_id,
-        ScheduleSlot.teacher_name == teacher_name,
         or_(ScheduleSlot.is_cancelled.is_(False), ScheduleSlot.is_cancelled.is_(None)),
     )
+    q = q.filter(ScheduleSlot.teacher_id == teacher_id)
     if subject_id:
         q = q.filter(ScheduleSlot.subject_id == subject_id)
     slots = q.all()
     return weekdays_from_slots(slots)
 
 
-def _lesson_owned_by_teacher(db: Session, lesson: Lesson, teacher_name: str) -> bool:
+def _lesson_owned_by_teacher(db: Session, lesson: Lesson, teacher_name: str, teacher_id: UUID) -> bool:
     """Security: verify lesson belongs to teacher via schedule. Prevents IDOR."""
-    if not teacher_name or not lesson:
+    if not lesson:
         return False
+    if lesson.teacher_id == teacher_id:
+        return True
     weekday = lesson.date.weekday()
     day_labels = (_WEEKDAY_LABELS_EN[weekday], _WEEKDAY_LABELS_RU[weekday])
     slot = db.query(ScheduleSlot).filter(
@@ -60,10 +63,18 @@ def _lesson_owned_by_teacher(db: Session, lesson: Lesson, teacher_name: str) -> 
         ScheduleSlot.subject_id == lesson.subject_id,
         ScheduleSlot.day_label.in_(day_labels),
         ScheduleSlot.time == lesson.time,
-        ScheduleSlot.teacher_name == teacher_name,
+        ScheduleSlot.teacher_id == teacher_id,
         or_(ScheduleSlot.is_cancelled.is_(False), ScheduleSlot.is_cancelled.is_(None)),
     ).first()
-    return slot is not None
+    if slot is not None:
+        return True
+    # Backward-compatible fallback for lessons created without matching schedule slot.
+    assignment = db.query(TeacherAssignment).filter(
+        TeacherAssignment.teacher_user_id == teacher_id,
+        TeacherAssignment.class_id == lesson.class_id,
+        TeacherAssignment.subject_id == lesson.subject_id,
+    ).first()
+    return assignment is not None
 
 
 def _week_day_index(week_offset: int, day_index: int) -> date:
@@ -78,18 +89,19 @@ def _get_or_create_teacher_lessons_from_schedule(
     db: DbSession,
     target_date: date,
     teacher_name: str,
+    teacher_id: UUID,
     class_ids: list,
 ) -> list[tuple[Lesson, ScheduleSlot]]:
     """Вернуть уроки учителя на дату, синхронизируя их из расписания."""
-    if not teacher_name or not class_ids:
+    if not class_ids:
         return []
     weekday = target_date.weekday()
     day_labels = (_WEEKDAY_LABELS_EN[weekday], _WEEKDAY_LABELS_RU[weekday])
     slots = db.query(ScheduleSlot).filter(
-        ScheduleSlot.teacher_name == teacher_name,
         ScheduleSlot.class_id.in_(class_ids),
         ScheduleSlot.day_label.in_(day_labels),
         or_(ScheduleSlot.is_cancelled.is_(False), ScheduleSlot.is_cancelled.is_(None)),
+        ScheduleSlot.teacher_id == teacher_id,
     ).order_by(ScheduleSlot.lesson_number.asc(), ScheduleSlot.time.asc()).all()
     lesson_with_slots: list[tuple[Lesson, ScheduleSlot]] = []
     for slot in slots:
@@ -103,6 +115,7 @@ def _get_or_create_teacher_lessons_from_schedule(
             lesson = Lesson(
                 class_id=slot.class_id,
                 subject_id=slot.subject_id,
+                teacher_id=slot.teacher_id or teacher_id,
                 date=target_date,
                 time=slot.time,
                 room=slot.room,
@@ -122,12 +135,12 @@ def get_teacher_lessons(
     current_user: TeacherUser = None,
 ):
     target_date = _week_day_index(week_offset, day_index)
-    tc = db.query(TeacherClass).filter(TeacherClass.teacher_id == current_user.id).all()
-    class_ids = [t.class_id for t in tc]
+    class_ids = get_teacher_class_ids(db, current_user.id)
     lessons_with_slots = _get_or_create_teacher_lessons_from_schedule(
         db=db,
         target_date=target_date,
         teacher_name=current_user.name,
+        teacher_id=current_user.id,
         class_ids=class_ids,
     )
     result = []
@@ -157,10 +170,11 @@ def get_lesson_students(
     if not lesson:
         raise HTTPException(status_code=404, detail="Урок не найден")
     # Security: prevent IDOR — only lesson owner may see students.
-    if not _lesson_owned_by_teacher(db, lesson, current_user.name):
+    if not _lesson_owned_by_teacher(db, lesson, current_user.name, current_user.id):
         raise HTTPException(status_code=403, detail="Доступ к этому уроку запрещён")
     # Students in this class
-    students = db.query(User).filter(User.role == "student", User.class_id == lesson.class_id).all()
+    student_ids = get_active_student_ids_for_class(db, lesson.class_id)
+    students = db.query(User).filter(User.id.in_(student_ids)).all() if student_ids else []
     attendances = {a.student_id: a for a in db.query(LessonAttendance).filter(LessonAttendance.lesson_id == lesson_id).all()}
     result = []
     for u in students:
@@ -188,7 +202,7 @@ def submit_grades(
     if not lesson:
         raise HTTPException(status_code=404, detail="Урок не найден")
     # Security: prevent IDOR — only lesson owner may modify grades/attendance.
-    if not _lesson_owned_by_teacher(db, lesson, current_user.name):
+    if not _lesson_owned_by_teacher(db, lesson, current_user.name, current_user.id):
         raise HTTPException(status_code=403, detail="Доступ к этому уроку запрещён")
     if body.topic is not None:
         lesson.topic = body.topic if body.topic.strip() else None
@@ -243,8 +257,7 @@ def get_teacher_journal(
     db: DbSession = None,
     current_user: TeacherUser = None,
 ):
-    tc = db.query(TeacherClass).filter(TeacherClass.teacher_id == current_user.id).all()
-    teacher_class_ids = [t.class_id for t in tc]
+    teacher_class_ids = get_teacher_class_ids(db, current_user.id)
     if not teacher_class_ids:
         return JournalDataResponse(class_id="", class_name="", subject="", subject_id="", subjects=[], dates=[], students=[], grades={})
     # Только неархивные классы в выборе
@@ -261,10 +274,10 @@ def get_teacher_journal(
     cls = db.query(Class).filter(Class.id == cid).first()
     if not cls:
         raise HTTPException(status_code=404, detail="Класс не найден")
-    # Only slots where this teacher teaches (teacher_name == current_user.name)
+    # Only slots where this teacher teaches
     slots = db.query(ScheduleSlot).filter(
         ScheduleSlot.class_id == cid,
-        ScheduleSlot.teacher_name == current_user.name,
+        ScheduleSlot.teacher_id == current_user.id,
     ).all()
     seen_subject_ids = set()
     subject_options = []
@@ -282,14 +295,17 @@ def get_teacher_journal(
     if not effective_subject_id and subject_options:
         effective_subject_id = UUID(subject_options[0].id)
     sub = db.query(Subject).filter(Subject.id == effective_subject_id).first() if effective_subject_id else None
+    if effective_subject_id and sub is None:
+        raise HTTPException(status_code=404, detail="Предмет не найден")
     subject_name = sub.name if sub else (subject_options[0].name if subject_options else "Журнал")
     subject_id_str = str(effective_subject_id) if effective_subject_id else (subject_options[0].id if subject_options else "")
-    students = db.query(User).filter(User.role == "student", User.class_id == cid).all()
+    student_ids = get_active_student_ids_for_class(db, cid)
+    students = db.query(User).filter(User.id.in_(student_ids)).all() if student_ids else []
 
     # Диапазон дат: из query-параметров или по умолчанию 90 дней до сегодня
     start_d, end_d = parse_journal_date_range(from_date, to_date)
     # Столбцы журнала — только дни недели (Пн–Пт), в которые по расписанию урок
-    weekdays = _schedule_weekdays_teacher(db, cid, effective_subject_id, current_user.name)
+    weekdays = _schedule_weekdays_teacher(db, cid, effective_subject_id, current_user.name, current_user.id)
     if weekdays:
         dates = build_journal_dates(weekdays, start_date=start_d, end_date=end_d)
     else:
@@ -347,18 +363,19 @@ def save_teacher_grade(
     except (ValueError, TypeError):
         raise HTTPException(status_code=400, detail="Invalid class_id")
     sub_id = UUID(body.subject_id)
-    teacher_class_ids = [t.class_id for t in db.query(TeacherClass).filter(TeacherClass.teacher_id == current_user.id).all()]
+    teacher_class_ids = get_teacher_class_ids(db, current_user.id)
     if body_class_id not in teacher_class_ids:
         raise HTTPException(status_code=403, detail="Доступ к этому классу запрещён")
-    student = db.query(User).filter(User.id == sid, User.role == "student").first()
-    if not student or not student.class_id:
+    student = db.query(User).filter(User.id == sid).first()
+    if not student or not has_user_role(db, sid, "student"):
         raise HTTPException(status_code=404, detail="Ученик не найден")
-    if body_class_id != student.class_id:
+    class_student_ids = set(get_active_student_ids_for_class(db, body_class_id))
+    if sid not in class_student_ids:
         raise HTTPException(status_code=403, detail="Ученик не из этого класса")
     allowed = db.query(ScheduleSlot).filter(
-        ScheduleSlot.class_id == student.class_id,
+        ScheduleSlot.class_id == body_class_id,
         ScheduleSlot.subject_id == sub_id,
-        ScheduleSlot.teacher_name == current_user.name,
+        ScheduleSlot.teacher_id == current_user.id,
     ).first()
     if not allowed:
         raise HTTPException(status_code=403, detail="Нет права выставлять оценки по этому предмету в этом классе")

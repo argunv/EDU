@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.deps import get_db, DbSession, CurrentUser
 from app.models.user import User
-from app.models.parent import ParentChild
+from app.models.role_profiles import ClassEnrollment
 from app.models.class_model import Class
 from app.models.schedule import ScheduleSlot
 from app.models.subject import Subject
@@ -19,6 +19,7 @@ from app.schemas.me import (
     HomeworkItemResponse,
     SubjectProgressResponse,
 )
+from app.services.relation_access import get_active_enrollment, get_parent_child_ids, has_user_role
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/me", tags=["me"])
@@ -27,34 +28,30 @@ router = APIRouter(prefix="/me", tags=["me"])
 def _resolve_child_id(current_user: User, child_id: str | None, db: Session) -> UUID:
     """
     Возвращает users.id ребёнка (role=student). Для student всегда current_user.id.
-    Для parent: без child_id — первый из parent_children; иначе проверка связи и существования user.
+    Для parent: без child_id — первый привязанный; иначе проверка связи и существования user.
     При ошибке — HTTPException 400/403/404 (логируем с correlation_id).
     """
-    if current_user.role == "student":
+    if has_user_role(db, current_user.id, "student"):
         return current_user.id
 
-    if current_user.role != "parent":
+    if not has_user_role(db, current_user.id, "parent"):
         cid = str(uuid4())[:12]
         logger.warning("me resolve_child status=403 correlation_id=%s role=%s", cid, current_user.role)
         raise HTTPException(status_code=403, detail="Роль не поддерживается")
 
     if not child_id:
-        link = (
-            db.query(ParentChild)
-            .filter(ParentChild.parent_id == current_user.id)
-            .order_by(ParentChild.id)
-            .first()
-        )
-        if not link:
+        child_ids = get_parent_child_ids(db, current_user.id)
+        if not child_ids:
             cid = str(uuid4())[:12]
             logger.warning("me resolve_child status=404 correlation_id=%s detail=no_children", cid)
             raise HTTPException(status_code=404, detail="Нет привязанных детей")
-        u = db.query(User).filter(User.id == link.child_id).first()
-        if not u or u.role != "student":
+        first_child_id = child_ids[0]
+        u = db.query(User).filter(User.id == first_child_id).first()
+        if not u or not has_user_role(db, u.id, "student"):
             cid = str(uuid4())[:12]
             logger.warning("me resolve_child status=404 correlation_id=%s detail=child_user_not_found", cid)
             raise HTTPException(status_code=404, detail="Ребёнок не найден")
-        return link.child_id
+        return first_child_id
 
     try:
         cid_uuid = UUID(child_id)
@@ -63,11 +60,8 @@ def _resolve_child_id(current_user: User, child_id: str | None, db: Session) -> 
         logger.warning("me resolve_child status=400 correlation_id=%s detail=invalid_child_id", cid)
         raise HTTPException(status_code=400, detail="Некорректный child_id")
 
-    link = db.query(ParentChild).filter(
-        ParentChild.parent_id == current_user.id,
-        ParentChild.child_id == cid_uuid,
-    ).first()
-    if not link:
+    allowed_ids = set(get_parent_child_ids(db, current_user.id))
+    if cid_uuid not in allowed_ids:
         u = db.query(User).filter(User.id == cid_uuid).first()
         if not u:
             cid = str(uuid4())[:12]
@@ -78,7 +72,7 @@ def _resolve_child_id(current_user: User, child_id: str | None, db: Session) -> 
         raise HTTPException(status_code=403, detail="Нет доступа к этому ребёнку")
 
     u = db.query(User).filter(User.id == cid_uuid).first()
-    if not u or u.role != "student":
+    if not u or not has_user_role(db, u.id, "student"):
         cid = str(uuid4())[:12]
         logger.warning("me resolve_child status=404 correlation_id=%s detail=child_user_not_student", cid)
         raise HTTPException(status_code=404, detail="Ребёнок не найден")
@@ -88,20 +82,24 @@ def _resolve_child_id(current_user: User, child_id: str | None, db: Session) -> 
 
 @router.get("/children", response_model=list[ChildResponse])
 def get_my_children(db: DbSession = None, current_user: CurrentUser = None):
-    if current_user.role == "student":
-        cls = db.query(Class).filter(Class.id == current_user.class_id).first() if current_user.class_id else None
+    if has_user_role(db, current_user.id, "student"):
+        enrollment = get_active_enrollment(db, current_user.id)
+        class_id = enrollment.class_id if enrollment else None
+        cls = db.query(Class).filter(Class.id == class_id).first() if class_id else None
         return [ChildResponse(
             id=str(current_user.id),
             name=current_user.name,
             class_name=cls.name if cls else "",
         )]
-    if current_user.role == "parent":
-        links = db.query(ParentChild).filter(ParentChild.parent_id == current_user.id).all()
+    if has_user_role(db, current_user.id, "parent"):
+        child_ids = get_parent_child_ids(db, current_user.id)
         out = []
-        for l in links:
-            u = db.query(User).filter(User.id == l.child_id).first()
+        for child_id in child_ids:
+            u = db.query(User).filter(User.id == child_id).first()
             if u:
-                cls = db.query(Class).filter(Class.id == u.class_id).first() if u.class_id else None
+                enrollment = get_active_enrollment(db, u.id)
+                class_id = enrollment.class_id if enrollment else None
+                cls = db.query(Class).filter(Class.id == class_id).first() if class_id else None
                 out.append(ChildResponse(id=str(u.id), name=u.name, class_name=cls.name if cls else ""))
         return out
     return []
@@ -127,14 +125,16 @@ def get_my_schedule(
 ):
     cid = _resolve_child_id(current_user, child_id, db)
     u = db.query(User).filter(User.id == cid).first()
-    if not u or u.role != "student" or not u.class_id:
+    enrollment = get_active_enrollment(db, cid)
+    student_class_id = enrollment.class_id if enrollment else None
+    if not u or not has_user_role(db, u.id, "student") or not student_class_id:
         cid_log = str(uuid4())[:12]
         logger.warning("me schedule status=404 correlation_id=%s detail=user_not_student", cid_log)
         raise HTTPException(status_code=404, detail="Пользователь не найден или не ученик")
-    cls = db.query(Class).filter(Class.id == u.class_id).first()
+    cls = db.query(Class).filter(Class.id == student_class_id).first()
     shift = (cls.shift if cls and cls.shift else "morning")
     slots = db.query(ScheduleSlot).filter(
-        ScheduleSlot.class_id == u.class_id,
+        ScheduleSlot.class_id == student_class_id,
         ScheduleSlot.shift == shift,
         ScheduleSlot.is_cancelled != True,
     ).order_by(ScheduleSlot.lesson_number).all()
@@ -196,7 +196,9 @@ def get_my_homework(
 ):
     cid = _resolve_child_id(current_user, child_id, db)
     u = db.query(User).filter(User.id == cid).first()
-    if not u or u.role != "student" or not u.class_id:
+    enrollment = get_active_enrollment(db, cid)
+    student_class_id = enrollment.class_id if enrollment else None
+    if not u or not has_user_role(db, u.id, "student") or not student_class_id:
         cid_log = str(uuid4())[:12]
         logger.warning("me homework status=404 correlation_id=%s detail=user_not_student", cid_log)
         raise HTTPException(status_code=404, detail="Пользователь не найден или не ученик")
@@ -211,7 +213,7 @@ def get_my_homework(
         start = today
         end = today + timedelta(days=7)
     items = db.query(Homework).filter(
-        Homework.class_id == u.class_id,
+        Homework.class_id == student_class_id,
         Homework.due_date >= start,
         Homework.due_date <= end,
     ).all()

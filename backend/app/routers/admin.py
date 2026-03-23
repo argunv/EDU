@@ -4,18 +4,26 @@ from datetime import datetime, date
 
 from fastapi import APIRouter, Query, Depends, HTTPException, status
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy import or_
+from sqlalchemy import and_, or_
 
 from app.deps import get_db, AdminUser, DbSession
 from app.models.user import User
-from app.models.parent import ParentChild
-from app.models.teacher import TeacherClass, TeacherSubject
+from app.models.role_profiles import (
+    ClassEnrollment,
+    ParentStudentLink,
+    TeacherAssignment,
+    UserRole,
+)
 from app.models.class_model import Class
 from app.models.subject import Subject
 from app.models.class_subject import ClassSubject
 from app.models.schedule import ScheduleSlot
 from app.models.grade import Grade
+from app.models.homework import Homework
+from app.models.lesson import Lesson
 from app.models.school_settings import SchoolSettings
+from app.repositories.admin_class_repository import AdminClassRepository
+from app.services.relation_access import ensure_no_enrollment_overlap, get_active_student_ids_for_class
 from app.schemas.user import AdminUserResponse
 from app.schemas.admin import (
     ApproveUserRequest,
@@ -60,18 +68,23 @@ def _class_to_admin_response(c: Class) -> AdminClassResponse:
 
 def _load_admin_user_response(db, user: User) -> AdminUserResponse:
     created_at = user.created_at or datetime.utcnow()
-    class_id = str(user.class_id) if user.class_id else None
+    class_id = None
     child_ids = None
     class_ids = None
     subject_ids = None
     if user.role == "parent":
-        links = db.query(ParentChild).filter(ParentChild.parent_id == user.id).all()
-        child_ids = [str(l.child_id) for l in links]
+        links = db.query(ParentStudentLink).filter(ParentStudentLink.parent_user_id == user.id).all()
+        child_ids = [str(l.student_user_id) for l in links]
     if user.role == "teacher":
-        tc = db.query(TeacherClass).filter(TeacherClass.teacher_id == user.id).all()
-        class_ids = [str(t.class_id) for t in tc]
-        ts = db.query(TeacherSubject).filter(TeacherSubject.teacher_id == user.id).all()
-        subject_ids = [str(t.subject_id) for t in ts]
+        assignments = db.query(TeacherAssignment).filter(TeacherAssignment.teacher_user_id == user.id).all()
+        class_ids = sorted({str(t.class_id) for t in assignments})
+        subject_ids = sorted({str(t.subject_id) for t in assignments})
+    if user.role == "student":
+        enrollment = db.query(ClassEnrollment).filter(
+            ClassEnrollment.student_user_id == user.id,
+            ClassEnrollment.end_date.is_(None),
+        ).first()
+        class_id = str(enrollment.class_id) if enrollment else None
     return AdminUserResponse.from_orm_user(
         user, created_at=created_at, class_id=class_id,
         child_ids=child_ids, class_ids=class_ids, subject_ids=subject_ids,
@@ -107,19 +120,26 @@ def approve_user(
         raise HTTPException(status_code=400, detail="Пользователь уже рассмотрен")
     user.role = body.role
     user.class_id = UUID(body.class_id) if body.class_id else None
-    db.query(ParentChild).filter(ParentChild.parent_id == user_id).delete()
-    db.query(TeacherClass).filter(TeacherClass.teacher_id == user_id).delete()
-    db.query(TeacherSubject).filter(TeacherSubject.teacher_id == user_id).delete()
+    db.query(UserRole).filter(UserRole.user_id == user_id).delete()
+    db.add(UserRole(user_id=user_id, role=body.role))
+    db.query(ParentStudentLink).filter(ParentStudentLink.parent_user_id == user_id).delete()
+    db.query(TeacherAssignment).filter(TeacherAssignment.teacher_user_id == user_id).delete()
+    db.query(ClassEnrollment).filter(ClassEnrollment.student_user_id == user_id).delete()
     if body.role == "parent" and body.child_ids:
         for cid in body.child_ids:
-            db.add(ParentChild(parent_id=user_id, child_id=UUID(cid)))
+            db.add(ParentStudentLink(parent_user_id=user_id, student_user_id=UUID(cid)))
+    if body.role == "student" and body.class_id:
+        try:
+            ensure_no_enrollment_overlap(db, user_id, date.today(), None)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        db.add(ClassEnrollment(student_user_id=user_id, class_id=UUID(body.class_id)))
     if body.role == "teacher":
-        if body.class_ids:
-            for cid in body.class_ids:
-                db.add(TeacherClass(teacher_id=user_id, class_id=UUID(cid)))
-        if body.subject_ids:
-            for sid in body.subject_ids:
-                db.add(TeacherSubject(teacher_id=user_id, subject_id=UUID(sid)))
+        class_ids = [UUID(cid) for cid in (body.class_ids or [])]
+        subject_ids = [UUID(sid) for sid in (body.subject_ids or [])]
+        for cid in class_ids:
+            for sid in subject_ids:
+                db.add(TeacherAssignment(teacher_user_id=user_id, class_id=cid, subject_id=sid))
     db.commit()
     return None
 
@@ -152,19 +172,26 @@ def patch_user_role(
         raise HTTPException(status_code=400, detail="Нельзя изменить роль")
     user.role = body.role
     user.class_id = UUID(body.class_id) if body.class_id else None
-    db.query(ParentChild).filter(ParentChild.parent_id == user_id).delete()
-    db.query(TeacherClass).filter(TeacherClass.teacher_id == user_id).delete()
-    db.query(TeacherSubject).filter(TeacherSubject.teacher_id == user_id).delete()
+    db.query(UserRole).filter(UserRole.user_id == user_id).delete()
+    db.add(UserRole(user_id=user_id, role=body.role))
+    db.query(ParentStudentLink).filter(ParentStudentLink.parent_user_id == user_id).delete()
+    db.query(TeacherAssignment).filter(TeacherAssignment.teacher_user_id == user_id).delete()
+    db.query(ClassEnrollment).filter(ClassEnrollment.student_user_id == user_id).delete()
     if body.role == "parent" and body.child_ids:
         for cid in body.child_ids:
-            db.add(ParentChild(parent_id=user_id, child_id=UUID(cid)))
+            db.add(ParentStudentLink(parent_user_id=user_id, student_user_id=UUID(cid)))
+    if body.role == "student" and body.class_id:
+        try:
+            ensure_no_enrollment_overlap(db, user_id, date.today(), None)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        db.add(ClassEnrollment(student_user_id=user_id, class_id=UUID(body.class_id)))
     if body.role == "teacher":
-        if body.class_ids:
-            for cid in body.class_ids:
-                db.add(TeacherClass(teacher_id=user_id, class_id=UUID(cid)))
-        if body.subject_ids:
-            for sid in body.subject_ids:
-                db.add(TeacherSubject(teacher_id=user_id, subject_id=UUID(sid)))
+        class_ids = [UUID(cid) for cid in (body.class_ids or [])]
+        subject_ids = [UUID(sid) for sid in (body.subject_ids or [])]
+        for cid in class_ids:
+            for sid in subject_ids:
+                db.add(TeacherAssignment(teacher_user_id=user_id, class_id=cid, subject_id=sid))
     db.commit()
     db.refresh(user)
     return _load_admin_user_response(db, user)
@@ -202,10 +229,15 @@ def delete_subject(
     sub = db.query(Subject).filter(Subject.id == subject_id).first()
     if not sub:
         raise HTTPException(status_code=404, detail="Предмет не найден")
+    # Удаляем связанные данные по предмету во всех классах, чтобы не оставалось
+    # "висячих" маршрутов журнала/расписания/ДЗ.
+    db.query(Grade).filter(Grade.subject_id == subject_id).delete(synchronize_session=False)
+    db.query(Homework).filter(Homework.subject_id == subject_id).delete(synchronize_session=False)
+    db.query(Lesson).filter(Lesson.subject_id == subject_id).delete(synchronize_session=False)
     # Расписание: слоты по всем классам
     db.query(ScheduleSlot).filter(ScheduleSlot.subject_id == subject_id).delete(synchronize_session=False)
     # У всех учителей убираем возможность вести этот предмет
-    db.query(TeacherSubject).filter(TeacherSubject.subject_id == subject_id).delete(synchronize_session=False)
+    db.query(TeacherAssignment).filter(TeacherAssignment.subject_id == subject_id).delete(synchronize_session=False)
     # Предмет из всех классов (class_subjects)
     db.query(ClassSubject).filter(ClassSubject.subject_id == subject_id).delete(synchronize_session=False)
     db.delete(sub)
@@ -223,8 +255,14 @@ def get_teachers(
     teachers = db.query(User).filter(User.role == "teacher").order_by(User.name).all()
     if not subject_id:
         return [AdminTeacherOption(id=str(u.id), name=u.name) for u in teachers]
-    ts = db.query(TeacherSubject).filter(TeacherSubject.subject_id == subject_id).all()
-    teacher_ids = {t.teacher_id for t in ts}
+    assignment_teacher_ids = {
+        row[0]
+        for row in db.query(TeacherAssignment.teacher_user_id)
+        .filter(TeacherAssignment.subject_id == subject_id)
+        .distinct()
+        .all()
+    }
+    teacher_ids = assignment_teacher_ids
     return [
         AdminTeacherOption(id=str(u.id), name=u.name)
         for u in teachers
@@ -252,10 +290,8 @@ def list_admin_classes(
     db: DbSession = None,
     current_user: AdminUser = None,
 ):
-    q = db.query(Class).order_by(Class.year_start.desc(), Class.grade, Class.letter)
-    if not include_archived:
-        q = q.filter(Class.archived == False)
-    classes = q.all()
+    repo = AdminClassRepository(db)
+    classes = repo.list(include_archived=include_archived)
     return [_class_to_admin_response(c) for c in classes]
 
 
@@ -280,6 +316,7 @@ def create_class(
     db: DbSession = None,
     current_user: AdminUser = None,
 ):
+    repo = AdminClassRepository(db)
     letter_normalized = _normalize_class_letter(body.letter)
     if not letter_normalized:
         raise HTTPException(status_code=400, detail="Буква класса не может быть пустой")
@@ -304,10 +341,8 @@ def create_class(
         max_lessons_per_week=body.max_lessons_per_week,
         archived=False,
     )
-    db.add(cls)
     try:
-        db.commit()
-        db.refresh(cls)
+        cls = repo.create(cls)
     except IntegrityError:
         db.rollback()
         raise HTTPException(
@@ -324,7 +359,8 @@ def patch_class(
     db: DbSession = None,
     current_user: AdminUser = None,
 ):
-    cls = db.query(Class).filter(Class.id == class_id).first()
+    repo = AdminClassRepository(db)
+    cls = repo.get(class_id)
     if not cls:
         raise HTTPException(status_code=404, detail="Класс не найден")
     if body.shift is not None:
@@ -333,9 +369,7 @@ def patch_class(
         cls.shift_locked = body.shift_locked
     if body.max_lessons_per_week is not None:
         cls.max_lessons_per_week = body.max_lessons_per_week
-    db.commit()
-    db.refresh(cls)
-    return _class_to_admin_response(cls)
+    return _class_to_admin_response(repo.save(cls))
 
 
 @router.post("/classes/{class_id}/archive", status_code=status.HTTP_204_NO_CONTENT)
@@ -344,13 +378,14 @@ def archive_class(
     db: DbSession = None,
     current_user: AdminUser = None,
 ):
-    cls = db.query(Class).filter(Class.id == class_id).first()
+    repo = AdminClassRepository(db)
+    cls = repo.get(class_id)
     if not cls:
         raise HTTPException(status_code=404, detail="Класс не найден")
     if cls.archived:
         raise HTTPException(status_code=400, detail="Класс уже в архиве")
     cls.archived = True
-    db.commit()
+    repo.save(cls)
     return None
 
 
@@ -361,7 +396,8 @@ def get_class_subjects(
     db: DbSession = None,
     current_user: AdminUser = None,
 ):
-    cls = db.query(Class).filter(Class.id == class_id).first()
+    repo = AdminClassRepository(db)
+    cls = repo.get(class_id)
     if not cls:
         raise HTTPException(status_code=404, detail="Класс не найден")
     if cls.archived:
@@ -417,8 +453,12 @@ def add_class_subject(
         t = db.query(User).filter(User.id == tid, User.role == "teacher").first()
         if not t:
             raise HTTPException(status_code=404, detail="Учитель не найден")
-        ts = db.query(TeacherSubject).filter(TeacherSubject.teacher_id == tid, TeacherSubject.subject_id == sid).first()
-        if not ts:
+        assignment = db.query(TeacherAssignment).filter(
+            TeacherAssignment.teacher_user_id == tid,
+            TeacherAssignment.class_id == class_id,
+            TeacherAssignment.subject_id == sid,
+        ).first()
+        if not assignment:
             raise HTTPException(status_code=400, detail="Учитель не ведёт этот предмет")
     existing = db.query(ClassSubject).filter(
         ClassSubject.class_id == class_id,
@@ -426,6 +466,10 @@ def add_class_subject(
     ).first()
     if existing:
         existing.teacher_id = tid
+        if tid:
+            teacher_user = db.query(User).filter(User.id == tid).first()
+            if teacher_user:
+                existing.teacher_name = teacher_user.name
         db.commit()
         db.refresh(existing)
         teacher_name = None
@@ -474,6 +518,32 @@ def remove_class_subject(
     ).first()
     if not cs:
         raise HTTPException(status_code=404, detail="Предмет не назначен классу")
+
+    # Удаляем все данные именно по связке класс+предмет:
+    # расписание, журнал (оценки), уроки и ДЗ, чтобы предмет полностью
+    # исчезал из контекста класса.
+    student_ids = get_active_student_ids_for_class(db, class_id)
+    if student_ids:
+        db.query(Grade).filter(
+            Grade.subject_id == subject_id,
+            Grade.student_id.in_(student_ids),
+        ).delete(synchronize_session=False)
+    db.query(Homework).filter(
+        Homework.class_id == class_id,
+        Homework.subject_id == subject_id,
+    ).delete(synchronize_session=False)
+    db.query(Lesson).filter(
+        Lesson.class_id == class_id,
+        Lesson.subject_id == subject_id,
+    ).delete(synchronize_session=False)
+    db.query(ScheduleSlot).filter(
+        ScheduleSlot.class_id == class_id,
+        ScheduleSlot.subject_id == subject_id,
+    ).delete(synchronize_session=False)
+    db.query(TeacherAssignment).filter(
+        TeacherAssignment.class_id == class_id,
+        TeacherAssignment.subject_id == subject_id,
+    ).delete(synchronize_session=False)
     db.delete(cs)
     db.commit()
     return None
@@ -488,7 +558,16 @@ def get_admin_schedule(
     db: DbSession = None,
     current_user: AdminUser = None,
 ):
-    slots = db.query(ScheduleSlot).filter(
+    slots = db.query(ScheduleSlot).join(
+        Subject,
+        Subject.id == ScheduleSlot.subject_id,
+    ).join(
+        ClassSubject,
+        and_(
+            ClassSubject.class_id == ScheduleSlot.class_id,
+            ClassSubject.subject_id == ScheduleSlot.subject_id,
+        ),
+    ).filter(
         ScheduleSlot.class_id == class_id,
         ScheduleSlot.shift == shift,
     ).all()
@@ -496,6 +575,10 @@ def get_admin_schedule(
     for s in slots:
         cls = db.query(Class).filter(Class.id == s.class_id).first()
         sub = db.query(Subject).filter(Subject.id == s.subject_id).first()
+        teacher_name = s.teacher_name
+        if s.teacher_id and not teacher_name:
+            teacher_user = db.query(User).filter(User.id == s.teacher_id).first()
+            teacher_name = teacher_user.name if teacher_user else ""
         result.append(AdminScheduleSlotResponse(
             id=str(s.id),
             day_label=s.day_label,
@@ -506,7 +589,8 @@ def get_admin_schedule(
             shift=s.shift,
             subject_id=str(s.subject_id),
             subject_name=sub.name if sub else "",
-            teacher_name=s.teacher_name,
+            teacher_id=str(s.teacher_id) if s.teacher_id else None,
+            teacher_name=teacher_name,
             room=s.room,
             note=s.note,
             is_cancelled=s.is_cancelled,
@@ -532,17 +616,19 @@ def get_busy_teachers_at_slot(
             ScheduleSlot.day_label == day_label.strip(),
             ScheduleSlot.lesson_number == lesson_number,
             ScheduleSlot.is_cancelled != True,
-            ScheduleSlot.teacher_name != "",
+            or_(ScheduleSlot.teacher_name != "", ScheduleSlot.teacher_id.isnot(None)),
         )
     )
     if exclude_class_id is not None:
         q = q.filter(ScheduleSlot.class_id != exclude_class_id)
     rows = q.distinct().all()
-    return [
-        BusyTeacherAtSlotResponse(teacher_name=r.teacher_name, class_name=r.class_name or "")
-        for r in rows
-        if r.teacher_name
-    ]
+    out: list[BusyTeacherAtSlotResponse] = []
+    for r in rows:
+        teacher_name = r.teacher_name
+        if not teacher_name:
+            continue
+        out.append(BusyTeacherAtSlotResponse(teacher_name=teacher_name, class_name=r.class_name or ""))
+    return out
 
 
 from app.services.schedule import (
@@ -596,7 +682,10 @@ def get_admin_journal(
     if not cls:
         raise HTTPException(status_code=404, detail="Класс не найден")
     sub = db.query(Subject).filter(Subject.id == subject_id).first() if subject_id else None
-    students = db.query(User).filter(User.role == "student", User.class_id == class_id).all()
+    if subject_id is not None and sub is None:
+        raise HTTPException(status_code=404, detail="Предмет не найден")
+    student_ids = get_active_student_ids_for_class(db, class_id)
+    students = db.query(User).filter(User.id.in_(student_ids)).all() if student_ids else []
 
     # Диапазон дат: из query-параметров или по умолчанию 90 дней до сегодня
     start_d, end_d = parse_journal_date_range(from_date, to_date)
@@ -609,10 +698,9 @@ def get_admin_journal(
 
     # Оценки по датам: для каждого ученика список в порядке dates
     grade_by_student_date = {}
-    student_ids = [u.id for u in students]
     if dates and students:
         q = db.query(Grade.student_id, Grade.date, Grade.value).filter(
-            Grade.student_id.in_(student_ids),
+            Grade.student_id.in_([u.id for u in students]),
             Grade.date >= date.fromisoformat(dates[0]),
             Grade.date <= date.fromisoformat(dates[-1]),
         )

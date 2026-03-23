@@ -35,16 +35,22 @@ class UserResponse(UserBase):
         class_name = None
         parent_names = None
         if getattr(user, "role", None) == "student":
-            if getattr(user, "class_id", None):
+            from app.models.role_profiles import ClassEnrollment, ParentStudentLink
+
+            enrollment = db.query(ClassEnrollment).filter(
+                ClassEnrollment.student_user_id == user.id,
+                ClassEnrollment.end_date.is_(None),
+            ).first()
+            class_id = enrollment.class_id if enrollment else None
+            if class_id:
                 from app.models.class_model import Class
-                cl = db.query(Class).filter(Class.id == user.class_id).first()
+                cl = db.query(Class).filter(Class.id == class_id).first()
                 if cl:
                     class_name = cl.name
-            from app.models.parent import ParentChild
             from app.models.user import User as UserModel
-            links = db.query(ParentChild).filter(ParentChild.child_id == user.id).all()
+            links = db.query(ParentStudentLink).filter(ParentStudentLink.student_user_id == user.id).all()
             if links:
-                parent_ids = [l.parent_id for l in links]
+                parent_ids = [l.parent_user_id for l in links]
                 parents = db.query(UserModel).filter(UserModel.id.in_(parent_ids)).all()
                 parent_names = [p.name for p in parents]
         return cls(

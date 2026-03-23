@@ -34,6 +34,7 @@ class AdminScheduleSlotResponse(BaseModel):
     shift: str
     subject_id: str
     subject_name: str
+    teacher_id: str | None = None
     teacher_name: str
     room: str | None = None
     note: str | None = None
@@ -49,6 +50,7 @@ class AdminScheduleSlotDraft(BaseModel):
     shift: str
     subject_id: str
     subject_name: str
+    teacher_id: str | None = None
     teacher_name: str
     room: str | None = None
     note: str | None = None

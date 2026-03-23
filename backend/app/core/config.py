@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     rate_limit_register: str = "3/60"
     rate_limit_forgot: str = "3/300"
     rate_limit_reset: str = "5/60"
+    rate_limit_fail_closed: bool = True
 
     class Config:
         env_file = ".env"
@@ -60,3 +61,7 @@ def validate_production_secrets() -> None:
         raise ValueError(
             "DATABASE_URL must not contain default credentials (e.g. postgres:postgres) in production."
         )
+    if "guest:guest@" in settings.rabbitmq_url:
+        raise ValueError("RABBITMQ_URL must not use guest credentials in production.")
+    if settings.frontend_url.startswith("http://localhost"):
+        raise ValueError("FRONTEND_URL must be a real domain in production.")

@@ -9,27 +9,28 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.class_model import Class
-from app.models.parent import ParentChild
+from app.models.role_profiles import ParentStudentLink, TeacherAssignment, UserRole
 from app.models.schedule import ScheduleSlot
 from app.models.subject import Subject
 from app.models.user import User
 from app.schemas.admin import AdminScheduleChange, AdminScheduleSlotDraft
 from app.services.email_queue import publish_email_task
+from app.services.relation_access import get_active_student_ids_for_class
 
 
 def get_class_recipient_emails(db: Session, class_id: UUID) -> list[str]:
     """Собирает email учеников класса и привязанных к ним родителей (без дубликатов)."""
+    student_ids = get_active_student_ids_for_class(db, class_id)
     students = db.query(User).filter(
-        User.role == "student",
-        User.class_id == class_id,
+        User.id.in_(student_ids),
         User.email.isnot(None),
-    ).all()
+    ).all() if student_ids else []
     emails = {s.email for s in students if s.email}
     if not students:
         return list(emails)
     student_ids = [s.id for s in students]
-    parent_links = db.query(ParentChild.parent_id).filter(
-        ParentChild.child_id.in_(student_ids),
+    parent_links = db.query(ParentStudentLink.parent_user_id).filter(
+        ParentStudentLink.student_user_id.in_(student_ids),
     ).distinct().all()
     parent_ids = [row[0] for row in parent_links]
     if parent_ids:
@@ -83,13 +84,13 @@ def check_teacher_schedule_conflicts(body: list[AdminScheduleChange], db: Sessio
         )
 
     def slot_key(s: AdminScheduleSlotDraft) -> tuple:
-        return (s.shift, (s.day_label or "").strip(), s.lesson_number, (s.teacher_name or "").strip())
+        return (s.shift, (s.day_label or "").strip(), s.lesson_number, (s.teacher_id or "").strip())
 
     assignments_by_slot: dict[tuple, list[UUID]] = {}
     slot_time_by_key: dict[tuple, str] = {}
 
     for ch in body:
-        if not ch.slot or not ch.slot.teacher_name:
+        if not ch.slot or not ch.slot.teacher_id:
             continue
         try:
             cid = UUID(ch.slot.class_id)
@@ -102,19 +103,19 @@ def check_teacher_schedule_conflicts(body: list[AdminScheduleChange], db: Sessio
         if cid not in assignments_by_slot[key]:
             assignments_by_slot[key].append(cid)
 
-    for (shift, day_label, lesson_number, teacher_name), class_ids in assignments_by_slot.items():
+    for (shift, day_label, lesson_number, teacher_id), class_ids in assignments_by_slot.items():
         if len(class_ids) > 1:
-            time_str = slot_time_by_key.get((shift, day_label, lesson_number, teacher_name), "?")
+            time_str = slot_time_by_key.get((shift, day_label, lesson_number, teacher_id), "?")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=(
-                    f"Преподаватель «{teacher_name}» не может вести урок в нескольких классах одновременно "
+                    f"Преподаватель не может вести урок в нескольких классах одновременно "
                     f"в {time_str} ({day_label}). Выберите другой слот или другого преподавателя."
                 ),
             )
 
     for ch in body:
-        if not ch.slot or not ch.slot.teacher_name:
+        if not ch.slot or not ch.slot.teacher_id:
             continue
         try:
             cid = UUID(ch.slot.class_id)
@@ -123,13 +124,13 @@ def check_teacher_schedule_conflicts(body: list[AdminScheduleChange], db: Sessio
         shift = ch.slot.shift
         day_label = (ch.slot.day_label or "").strip()
         lesson_number = ch.slot.lesson_number
-        teacher_name = (ch.slot.teacher_name or "").strip()
+        teacher_id = ch.slot.teacher_id
 
         other = db.query(ScheduleSlot).filter(
             ScheduleSlot.shift == shift,
             ScheduleSlot.day_label == day_label,
             ScheduleSlot.lesson_number == lesson_number,
-            ScheduleSlot.teacher_name == teacher_name,
+            ScheduleSlot.teacher_id == UUID(teacher_id),
             ScheduleSlot.class_id != cid,
             ScheduleSlot.is_cancelled != True,
         ).first()
@@ -203,6 +204,7 @@ def apply_schedule_changes(body: list[AdminScheduleChange], db: Session) -> None
         day_label = (slot.day_label or "").strip()
         time_str = (slot.time or "").strip() or "—"
         new_cancelled = slot.is_cancelled or False
+        teacher_id = _resolve_teacher_id(db, slot.teacher_id, slot.teacher_name)
         existing = db.query(ScheduleSlot).filter(
             ScheduleSlot.class_id == cid,
             ScheduleSlot.shift == slot.shift,
@@ -212,6 +214,7 @@ def apply_schedule_changes(body: list[AdminScheduleChange], db: Session) -> None
         if existing:
             was_cancelled = bool(getattr(existing, "is_cancelled", False))
             existing.subject_id = sid
+            existing.teacher_id = teacher_id
             existing.teacher_name = slot.teacher_name
             existing.room = slot.room
             existing.note = slot.note
@@ -222,6 +225,7 @@ def apply_schedule_changes(body: list[AdminScheduleChange], db: Session) -> None
             db.add(ScheduleSlot(
                 class_id=cid,
                 subject_id=sid,
+                teacher_id=teacher_id,
                 day_label=day_label,
                 lesson_number=slot.lesson_number,
                 time=slot.time,
@@ -260,3 +264,29 @@ def apply_schedule_changes(body: list[AdminScheduleChange], db: Session) -> None
             "day_label": day_label,
             "time": time_str,
         })
+
+
+def _resolve_teacher_id(db: Session, teacher_id_raw: str | None, teacher_name: str | None) -> UUID:
+    if teacher_id_raw:
+        try:
+            teacher_id = UUID(teacher_id_raw)
+        except (ValueError, TypeError) as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Некорректный teacher_id") from exc
+        exists = db.query(UserRole.id).filter(
+            UserRole.user_id == teacher_id,
+            UserRole.role == "teacher",
+        ).first()
+        if not exists:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="teacher_id не найден")
+        return teacher_id
+
+    if not teacher_name or not teacher_name.strip():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="teacher_id обязателен")
+
+    rows = db.query(User.id).join(UserRole, UserRole.user_id == User.id).filter(
+        User.name == teacher_name.strip(),
+        UserRole.role == "teacher",
+    ).all()
+    if len(rows) != 1:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="teacher_name неоднозначен, укажите teacher_id")
+    return rows[0][0]

@@ -6,7 +6,8 @@ from fastapi import HTTPException, status
 
 logger = logging.getLogger(__name__)
 
-# Optional Redis; if not available, rate limit is skipped.
+# Redis-backed limiter. If Redis is down and fail-closed is enabled,
+# auth endpoints are temporarily protected with 503 instead of fail-open.
 # _redis_failed: после первой неудачной попытки не повторяем (избегаем таймаутов на каждый запрос).
 _redis_client = None
 _redis_failed = False
@@ -48,8 +49,15 @@ def rate_limit_key(prefix: str, identifier: str) -> str:
 
 def check_rate_limit(prefix: str, identifier: str, rate: str) -> None:
     """Raises HTTPException 429 if over limit."""
+    from app.core.config import settings
+
     r = get_redis()
     if not r:
+        if settings.rate_limit_fail_closed:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Rate limiter temporarily unavailable. Try again later.",
+            )
         return
     try:
         limit, window = parse_rate(rate)
@@ -67,4 +75,9 @@ def check_rate_limit(prefix: str, identifier: str, rate: str) -> None:
     except HTTPException:
         raise
     except Exception as e:
-        logger.warning("Rate limit check failed (skipping limit): %s", e)
+        logger.warning("Rate limit check failed: %s", e)
+        if settings.rate_limit_fail_closed:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Rate limiter temporarily unavailable. Try again later.",
+            )

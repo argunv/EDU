@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.deps import get_db, DbSession
 from app.models.user import User, PasswordResetToken
+from app.models.role_profiles import UserRole
 from app.schemas.auth import (
     LoginRequest,
     RegisterRequest,
@@ -29,6 +30,7 @@ from app.services.auth import (
 )
 from app.services.rate_limit import check_rate_limit
 from app.services.email_queue import publish_email_task
+from app.services.relation_access import has_user_role
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -90,6 +92,8 @@ def register(
         role="pending",
     )
     db.add(user)
+    db.flush()
+    db.add(UserRole(user_id=user.id, role="pending"))
     db.commit()
     db.refresh(user)
     raw_refresh, _ = create_refresh_token(db, user.id)
@@ -109,7 +113,7 @@ def login(
     user = db.query(User).filter(User.email == body.login.lower()).first()
     if not user or not verify_password(body.password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Неверный логин или пароль")
-    if user.role == "rejected":
+    if has_user_role(db, user.id, "rejected"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Доступ отклонён")
     raw_refresh, _ = create_refresh_token(db, user.id)
     access = create_access_token(str(user.id))
