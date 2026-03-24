@@ -19,6 +19,7 @@ from app.models.class_model import Class
 from app.models.subject import Subject
 from app.models.teacher import TeacherClass, TeacherSubject
 from app.models.parent import ParentChild
+from app.models.role_profiles import ClassEnrollment, ParentStudentLink, TeacherAssignment, UserRole
 from app.models.school_settings import SchoolSettings
 from app.services.auth import hash_password, create_access_token
 from app.db.session import engine as _app_engine, SessionLocal as _AppSessionLocal
@@ -49,7 +50,17 @@ def test_engine():
 
 def _truncate_all(session: Session) -> None:
     """Очистить все таблицы (схема уже есть из миграций)."""
-    tables = [t.name for t in Base.metadata.sorted_tables]
+    result = session.execute(
+        text(
+            """
+            SELECT tablename
+            FROM pg_tables
+            WHERE schemaname = 'public'
+              AND tablename <> 'alembic_version'
+            """
+        )
+    ).fetchall()
+    tables = [row[0] for row in result]
     if not tables:
         return
     # TRUNCATE ... CASCADE для очистки с учётом FK
@@ -147,6 +158,8 @@ def admin_user(db: Session, class_9a: Class):
     )
     db.add(user)
     db.commit()
+    db.add(UserRole(user_id=user.id, role="admin"))
+    db.commit()
     db.refresh(user)
     return user
 
@@ -162,9 +175,12 @@ def teacher_user(db: Session, class_1a: Class, class_9a: Class, subject_math: Su
     )
     db.add(user)
     db.commit()
+    db.add(UserRole(user_id=user.id, role="teacher"))
+    db.commit()
     db.refresh(user)
     db.add(TeacherClass(teacher_id=user.id, class_id=class_1a.id))
     db.add(TeacherSubject(teacher_id=user.id, subject_id=subject_math.id))
+    db.add(TeacherAssignment(teacher_user_id=user.id, class_id=class_1a.id, subject_id=subject_math.id))
     db.commit()
     db.refresh(user)
     return user
@@ -182,6 +198,10 @@ def student_user(db: Session, class_1a: Class):
     )
     db.add(user)
     db.commit()
+    db.add(UserRole(user_id=user.id, role="student"))
+    db.commit()
+    db.add(ClassEnrollment(student_user_id=user.id, class_id=class_1a.id))
+    db.commit()
     db.refresh(user)
     return user
 
@@ -197,8 +217,11 @@ def parent_user(db: Session, student_user: User):
     )
     db.add(user)
     db.commit()
+    db.add(UserRole(user_id=user.id, role="parent"))
+    db.commit()
     db.refresh(user)
     db.add(ParentChild(parent_id=user.id, child_id=student_user.id))
+    db.add(ParentStudentLink(parent_user_id=user.id, student_user_id=student_user.id))
     db.commit()
     db.refresh(user)
     return user

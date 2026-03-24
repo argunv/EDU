@@ -8,6 +8,10 @@ from fastapi.testclient import TestClient
 from app.models.user import User
 from app.models.class_model import Class
 from app.models.grade import Grade
+from app.models.homework import Homework
+from app.models.lesson import Lesson
+from app.models.class_subject import ClassSubject
+from app.models.role_profiles import TeacherAssignment, UserRole
 from app.models.schedule import ScheduleSlot
 from app.services.auth import hash_password, create_access_token
 
@@ -191,7 +195,7 @@ def test_admin_schedule(client: TestClient, auth_headers, class_1a):
     assert isinstance(res.json(), list)
 
 
-def test_admin_schedule_changes_teacher_conflict(client: TestClient, db, auth_headers, class_1a, class_9a, subject_math):
+def test_admin_schedule_changes_teacher_conflict(client: TestClient, db, auth_headers, class_1a, class_9a, subject_math, teacher_user):
     """При назначении одного учителя в два класса в одно время возвращается ошибка с указанием класса и времени."""
     slot_1a = ScheduleSlot(
         class_id=class_1a.id,
@@ -200,6 +204,7 @@ def test_admin_schedule_changes_teacher_conflict(client: TestClient, db, auth_he
         lesson_number=1,
         time="09:00",
         shift="morning",
+        teacher_id=teacher_user.id,
         teacher_name="Пётр Сидоров",
         room="101",
     )
@@ -218,6 +223,7 @@ def test_admin_schedule_changes_teacher_conflict(client: TestClient, db, auth_he
                 "shift": "morning",
                 "subject_id": str(subject_math.id),
                 "subject_name": subject_math.name,
+                "teacher_id": str(teacher_user.id),
                 "teacher_name": "Пётр Сидоров",
                 "room": "102",
                 "note": None,
@@ -235,8 +241,21 @@ def test_admin_schedule_changes_teacher_conflict(client: TestClient, db, auth_he
     assert "09:00" in detail
 
 
-def test_admin_schedule_changes_swap_teachers_no_conflict(client: TestClient, db, auth_headers, class_1a, class_9a, subject_math):
+def test_admin_schedule_changes_swap_teachers_no_conflict(client: TestClient, db, auth_headers, class_1a, class_9a, subject_math, teacher_user):
     """Обмен учителями между двумя классами в одном слоте в одном запросе — сохраняется без ошибки (204)."""
+    second_teacher = User(
+        id=uuid.uuid4(),
+        email="teacher2@test.com",
+        password_hash=hash_password("password"),
+        name="Иван Петров",
+        role="teacher",
+    )
+    db.add(second_teacher)
+    db.commit()
+    db.add(UserRole(user_id=second_teacher.id, role="teacher"))
+    db.add(TeacherAssignment(teacher_user_id=second_teacher.id, class_id=class_9a.id, subject_id=subject_math.id))
+    db.commit()
+
     slot_1a = ScheduleSlot(
         class_id=class_1a.id,
         subject_id=subject_math.id,
@@ -244,6 +263,7 @@ def test_admin_schedule_changes_swap_teachers_no_conflict(client: TestClient, db
         lesson_number=1,
         time="09:00",
         shift="morning",
+        teacher_id=teacher_user.id,
         teacher_name="Пётр Сидоров",
         room="101",
     )
@@ -254,6 +274,7 @@ def test_admin_schedule_changes_swap_teachers_no_conflict(client: TestClient, db
         lesson_number=1,
         time="09:00",
         shift="morning",
+        teacher_id=second_teacher.id,
         teacher_name="Иван Петров",
         room="102",
     )
@@ -274,6 +295,7 @@ def test_admin_schedule_changes_swap_teachers_no_conflict(client: TestClient, db
                 "shift": "morning",
                 "subject_id": str(subject_math.id),
                 "subject_name": subject_math.name,
+                "teacher_id": str(second_teacher.id),
                 "teacher_name": "Иван Петров",
                 "room": "101",
                 "note": None,
@@ -291,6 +313,7 @@ def test_admin_schedule_changes_swap_teachers_no_conflict(client: TestClient, db
                 "shift": "morning",
                 "subject_id": str(subject_math.id),
                 "subject_name": subject_math.name,
+                "teacher_id": str(teacher_user.id),
                 "teacher_name": "Пётр Сидоров",
                 "room": "102",
                 "note": None,
@@ -318,18 +341,24 @@ def test_admin_schedule_changes_swap_teachers_no_conflict(client: TestClient, db
 
 
 def test_admin_journal(client: TestClient, db, auth_headers, class_1a, student_user, subject_math):
+    today = date.today()
     g = Grade(
         id=uuid.uuid4(),
         student_id=student_user.id,
         subject_id=subject_math.id,
-        date=date.today(),
+        date=today,
         value="5",
     )
     db.add(g)
-    db.flush()
+    db.commit()
     res = client.get(
         "/admin/journal",
-        params={"class_id": str(class_1a.id)},
+        params={
+            "class_id": str(class_1a.id),
+            "subject_id": str(subject_math.id),
+            "from_date": today.isoformat(),
+            "to_date": today.isoformat(),
+        },
         headers=auth_headers,
     )
     assert res.status_code == 200
@@ -375,3 +404,164 @@ def test_admin_approve_user_404(client: TestClient, auth_headers):
         headers=auth_headers,
     )
     assert res.status_code == 404
+
+
+def test_admin_delete_subject_cascades_related_data(client: TestClient, db, auth_headers, class_1a, subject_math, teacher_user, student_user):
+    # Arrange linked entities for the same subject across schedule/journal/homework.
+    db.add(ClassSubject(class_id=class_1a.id, subject_id=subject_math.id, teacher_id=teacher_user.id))
+    db.add(
+        ScheduleSlot(
+            class_id=class_1a.id,
+            subject_id=subject_math.id,
+            day_label="Понедельник",
+            lesson_number=1,
+            time="09:00",
+            shift="morning",
+            teacher_id=teacher_user.id,
+            teacher_name=teacher_user.name,
+            room="101",
+        )
+    )
+    lesson = Lesson(
+        id=uuid.uuid4(),
+        class_id=class_1a.id,
+        subject_id=subject_math.id,
+        teacher_id=teacher_user.id,
+        date=date.today(),
+        time="09:00",
+        room="101",
+    )
+    db.add(lesson)
+    db.add(Grade(id=uuid.uuid4(), student_id=student_user.id, subject_id=subject_math.id, date=date.today(), value="5"))
+    db.add(Homework(class_id=class_1a.id, subject_id=subject_math.id, due_date=date.today(), text="HW"))
+    db.commit()
+
+    # Act
+    res = client.delete(f"/api/admin/subjects/{subject_math.id}", headers=auth_headers)
+    assert res.status_code == 204
+
+    # Assert all linked entities removed.
+    assert db.query(ScheduleSlot).filter(ScheduleSlot.subject_id == subject_math.id).count() == 0
+    assert db.query(TeacherAssignment).filter(TeacherAssignment.subject_id == subject_math.id).count() == 0
+    assert db.query(ClassSubject).filter(ClassSubject.subject_id == subject_math.id).count() == 0
+    assert db.query(Homework).filter(Homework.subject_id == subject_math.id).count() == 0
+    assert db.query(Lesson).filter(Lesson.subject_id == subject_math.id).count() == 0
+    assert db.query(Grade).filter(Grade.subject_id == subject_math.id).count() == 0
+
+    # Journal by removed subject should not be accessible.
+    jr = client.get(
+        "/api/admin/journal",
+        params={"class_id": str(class_1a.id), "subject_id": str(subject_math.id)},
+        headers=auth_headers,
+    )
+    assert jr.status_code == 404
+
+
+def test_admin_remove_class_subject_cascades_class_scoped_data(
+    client: TestClient, db, auth_headers, class_1a, class_9a, subject_math, teacher_user, student_user
+):
+    # Arrange: subject exists in two classes, then remove only from class_1a.
+    db.add(ClassSubject(class_id=class_1a.id, subject_id=subject_math.id, teacher_id=teacher_user.id))
+    db.add(ClassSubject(class_id=class_9a.id, subject_id=subject_math.id, teacher_id=teacher_user.id))
+    db.add(TeacherAssignment(teacher_user_id=teacher_user.id, class_id=class_9a.id, subject_id=subject_math.id))
+    db.add(
+        ScheduleSlot(
+            class_id=class_1a.id,
+            subject_id=subject_math.id,
+            day_label="Понедельник",
+            lesson_number=2,
+            time="10:00",
+            shift="morning",
+            teacher_id=teacher_user.id,
+            teacher_name=teacher_user.name,
+            room="101",
+        )
+    )
+    db.add(
+        ScheduleSlot(
+            class_id=class_9a.id,
+            subject_id=subject_math.id,
+            day_label="Понедельник",
+            lesson_number=2,
+            time="10:00",
+            shift="morning",
+            teacher_id=teacher_user.id,
+            teacher_name=teacher_user.name,
+            room="102",
+        )
+    )
+    db.add(
+        Lesson(
+            id=uuid.uuid4(),
+            class_id=class_1a.id,
+            subject_id=subject_math.id,
+            teacher_id=teacher_user.id,
+            date=date.today(),
+            time="10:00",
+            room="101",
+        )
+    )
+    db.add(
+        Lesson(
+            id=uuid.uuid4(),
+            class_id=class_9a.id,
+            subject_id=subject_math.id,
+            teacher_id=teacher_user.id,
+            date=date.today(),
+            time="10:00",
+            room="102",
+        )
+    )
+    db.add(Grade(id=uuid.uuid4(), student_id=student_user.id, subject_id=subject_math.id, date=date.today(), value="4"))
+    db.add(Homework(class_id=class_1a.id, subject_id=subject_math.id, due_date=date.today(), text="HW1"))
+    db.add(Homework(class_id=class_9a.id, subject_id=subject_math.id, due_date=date.today(), text="HW2"))
+    db.commit()
+
+    # Act
+    res = client.delete(f"/api/admin/classes/{class_1a.id}/subjects/{subject_math.id}", headers=auth_headers)
+    assert res.status_code == 204
+
+    # Assert class_1a data was removed.
+    assert db.query(ClassSubject).filter(ClassSubject.class_id == class_1a.id, ClassSubject.subject_id == subject_math.id).count() == 0
+    assert db.query(ScheduleSlot).filter(ScheduleSlot.class_id == class_1a.id, ScheduleSlot.subject_id == subject_math.id).count() == 0
+    assert db.query(Lesson).filter(Lesson.class_id == class_1a.id, Lesson.subject_id == subject_math.id).count() == 0
+    assert db.query(Homework).filter(Homework.class_id == class_1a.id, Homework.subject_id == subject_math.id).count() == 0
+    assert db.query(TeacherAssignment).filter(TeacherAssignment.class_id == class_1a.id, TeacherAssignment.subject_id == subject_math.id).count() == 0
+    # Student fixture belongs to class_1a; after removal class-scoped grade for this subject should be gone.
+    assert db.query(Grade).filter(Grade.student_id == student_user.id, Grade.subject_id == subject_math.id).count() == 0
+
+    # Assert other class data is untouched.
+    assert db.query(ClassSubject).filter(ClassSubject.class_id == class_9a.id, ClassSubject.subject_id == subject_math.id).count() == 1
+    assert db.query(ScheduleSlot).filter(ScheduleSlot.class_id == class_9a.id, ScheduleSlot.subject_id == subject_math.id).count() == 1
+    assert db.query(Lesson).filter(Lesson.class_id == class_9a.id, Lesson.subject_id == subject_math.id).count() == 1
+    assert db.query(Homework).filter(Homework.class_id == class_9a.id, Homework.subject_id == subject_math.id).count() == 1
+
+
+def test_admin_schedule_ignores_orphan_subject_slots(client: TestClient, db, auth_headers, class_1a, subject_math, teacher_user):
+    # Arrange: slot exists, but subject is no longer assigned to class (no class_subject row).
+    db.add(
+        ScheduleSlot(
+            class_id=class_1a.id,
+            subject_id=subject_math.id,
+            day_label="Понедельник",
+            lesson_number=3,
+            time="11:00",
+            shift="morning",
+            teacher_id=teacher_user.id,
+            teacher_name=teacher_user.name,
+            room="103",
+        )
+    )
+    db.commit()
+
+    # Act
+    res = client.get(
+        "/api/admin/schedule",
+        params={"week_start_iso": "2025-01-06", "class_id": str(class_1a.id), "shift": "morning"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+    data = res.json()
+
+    # Assert: orphan slot is not returned.
+    assert all(item["subject_id"] != str(subject_math.id) for item in data)

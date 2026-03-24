@@ -1,6 +1,8 @@
 import pytest
+from fastapi import HTTPException
 
-from app.services.rate_limit import parse_rate, rate_limit_key, check_rate_limit
+from app.core.config import settings
+from app.services.rate_limit import check_rate_limit, parse_rate, rate_limit_key
 
 
 def test_parse_rate():
@@ -19,6 +21,13 @@ def test_rate_limit_key():
     assert rate_limit_key("register", "unknown") == "rate:register:unknown"
 
 
-def test_check_rate_limit_no_redis():
-    # When Redis is not available, check_rate_limit does nothing (no exception)
+def test_check_rate_limit_no_redis_fail_closed(monkeypatch):
+    monkeypatch.setattr(settings, "rate_limit_fail_closed", True)
+    with pytest.raises(HTTPException) as exc:
+        check_rate_limit("login", "127.0.0.1", "5/60")
+    assert exc.value.status_code == 503
+
+
+def test_check_rate_limit_no_redis_allows_when_fail_open(monkeypatch):
+    monkeypatch.setattr(settings, "rate_limit_fail_closed", False)
     check_rate_limit("login", "127.0.0.1", "5/60")
