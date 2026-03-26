@@ -1,44 +1,71 @@
+import { Suspense, lazy, type ReactNode } from 'react'
 import { Navigate, createBrowserRouter } from 'react-router-dom'
 
 import { AppShell } from '../components/layout/AppShell'
-import { AuthLayout } from '../features/auth/AuthLayout'
-import { ForgotPasswordPage } from '../features/auth/ForgotPasswordPage'
-import { LoginPage } from '../features/auth/LoginPage'
-import { RegisterPage } from '../features/auth/RegisterPage'
-import { ResetPasswordPage } from '../features/auth/ResetPasswordPage'
+import { NotFoundPage } from '../components/shared/NotFoundPage'
+import { RouteErrorBoundary } from '../components/shared/RouteErrorBoundary'
 import { PendingGuard } from '../features/auth/PendingGuard'
 import { ProtectedRoute } from '../features/auth/ProtectedRoute'
-import { AdminLayout } from '../features/admin/AdminLayout'
-import { AdminUsersPage } from '../features/admin/AdminUsersPage'
-import { AdminSubjectsPage } from '../features/admin/AdminSubjectsPage'
-import { ClassesPage } from '../features/admin/ClassesPage'
-import { AdminSchedulePage } from '../features/admin/AdminSchedulePage'
-import { JournalPage } from '../features/admin/JournalPage'
-import { HomeworkPage } from '../features/student/HomeworkPage'
-import { ProgressPage } from '../features/student/ProgressPage'
-import { SchedulePage } from '../features/student/SchedulePage'
-import { LessonPage } from '../features/teacher/LessonPage'
-import { TeacherJournalPage } from '../features/teacher/TeacherJournalPage'
-import { TodayPage } from '../features/teacher/TodayPage'
-import { MyProfilePage } from '../features/profile/MyProfilePage'
+
+const AuthLayout = lazy(() => import('../features/auth/AuthLayout').then((m) => ({ default: m.AuthLayout })))
+const ForgotPasswordPage = lazy(() =>
+  import('../features/auth/ForgotPasswordPage').then((m) => ({ default: m.ForgotPasswordPage })),
+)
+const LoginPage = lazy(() => import('../features/auth/LoginPage').then((m) => ({ default: m.LoginPage })))
+const RegisterPage = lazy(() =>
+  import('../features/auth/RegisterPage').then((m) => ({ default: m.RegisterPage })),
+)
+const ResetPasswordPage = lazy(() =>
+  import('../features/auth/ResetPasswordPage').then((m) => ({ default: m.ResetPasswordPage })),
+)
+const AdminLayout = lazy(() => import('../features/admin/AdminLayout').then((m) => ({ default: m.AdminLayout })))
+const AdminUsersPage = lazy(() =>
+  import('../features/admin/AdminUsersPage').then((m) => ({ default: m.AdminUsersPage })),
+)
+const AdminSubjectsPage = lazy(() =>
+  import('../features/admin/AdminSubjectsPage').then((m) => ({ default: m.AdminSubjectsPage })),
+)
+const ClassesPage = lazy(() => import('../features/admin/ClassesPage').then((m) => ({ default: m.ClassesPage })))
+const AdminSchedulePage = lazy(() =>
+  import('../features/admin/AdminSchedulePage').then((m) => ({ default: m.AdminSchedulePage })),
+)
+const JournalPage = lazy(() => import('../features/admin/JournalPage').then((m) => ({ default: m.JournalPage })))
+const HomeworkPage = lazy(() => import('../features/student/HomeworkPage').then((m) => ({ default: m.HomeworkPage })))
+const ProgressPage = lazy(() => import('../features/student/ProgressPage').then((m) => ({ default: m.ProgressPage })))
+const SchedulePage = lazy(() => import('../features/student/SchedulePage').then((m) => ({ default: m.SchedulePage })))
+const LessonPage = lazy(() => import('../features/teacher/LessonPage').then((m) => ({ default: m.LessonPage })))
+const TeacherJournalPage = lazy(() =>
+  import('../features/teacher/TeacherJournalPage').then((m) => ({ default: m.TeacherJournalPage })),
+)
+const TodayPage = lazy(() => import('../features/teacher/TodayPage').then((m) => ({ default: m.TodayPage })))
+const MyProfilePage = lazy(() => import('../features/profile/MyProfilePage').then((m) => ({ default: m.MyProfilePage })))
+
+function withSuspense(element: ReactNode) {
+  return (
+    <Suspense fallback={<div className="px-4 py-6 text-sm text-slate-600">Загрузка страницы...</div>}>
+      {element}
+    </Suspense>
+  )
+}
 
 export const router = createBrowserRouter([
   {
     path: '/',
     element: <AppShell />,
+    errorElement: <RouteErrorBoundary />,
     children: [
       { index: true, element: <Navigate to="/auth/login" replace /> },
       { path: 'login', element: <Navigate to="/auth/login" replace /> },
       { path: 'pending', element: <PendingGuard /> },
       {
         path: 'auth',
-        element: <AuthLayout />,
+        element: withSuspense(<AuthLayout />),
         children: [
           { index: true, element: <Navigate to="/auth/login" replace /> },
-          { path: 'login', element: <LoginPage /> },
-          { path: 'register', element: <RegisterPage /> },
-          { path: 'forgot-password', element: <ForgotPasswordPage /> },
-          { path: 'reset-password', element: <ResetPasswordPage /> },
+          { path: 'login', element: withSuspense(<LoginPage />) },
+          { path: 'register', element: withSuspense(<RegisterPage />) },
+          { path: 'forgot-password', element: withSuspense(<ForgotPasswordPage />) },
+          { path: 'reset-password', element: withSuspense(<ResetPasswordPage />) },
         ],
       },
       {
@@ -46,19 +73,19 @@ export const router = createBrowserRouter([
         children: [
           {
             path: 'teacher/today',
-            element: <TodayPage />,
+            element: withSuspense(<TodayPage />),
           },
           {
             path: 'teacher/lesson/:lessonId',
-            element: <LessonPage />,
+            element: withSuspense(<LessonPage />),
           },
           {
             path: 'teacher/journal',
-            element: <TeacherJournalPage />,
+            element: withSuspense(<TeacherJournalPage />),
           },
           {
             path: 'teacher/journal/:classId',
-            element: <TeacherJournalPage />,
+            element: withSuspense(<TeacherJournalPage />),
           },
         ],
       },
@@ -67,15 +94,15 @@ export const router = createBrowserRouter([
         children: [
           {
             path: 'me/schedule',
-            element: <SchedulePage />,
+            element: withSuspense(<SchedulePage />),
           },
           {
             path: 'me/homework',
-            element: <HomeworkPage />,
+            element: withSuspense(<HomeworkPage />),
           },
           {
             path: 'me/progress',
-            element: <ProgressPage />,
+            element: withSuspense(<ProgressPage />),
           },
         ],
       },
@@ -84,7 +111,7 @@ export const router = createBrowserRouter([
         children: [
           {
             path: 'profile',
-            element: <MyProfilePage />,
+            element: withSuspense(<MyProfilePage />),
           },
         ],
       },
@@ -93,7 +120,7 @@ export const router = createBrowserRouter([
         children: [
           {
             path: 'admin',
-            element: <AdminLayout />,
+            element: withSuspense(<AdminLayout />),
             children: [
               {
                 index: true,
@@ -101,31 +128,35 @@ export const router = createBrowserRouter([
               },
               {
                 path: 'classes',
-                element: <ClassesPage />,
+                element: withSuspense(<ClassesPage />),
               },
               {
                 path: 'subjects',
-                element: <AdminSubjectsPage />,
+                element: withSuspense(<AdminSubjectsPage />),
               },
               {
                 path: 'users',
-                element: <AdminUsersPage />,
+                element: withSuspense(<AdminUsersPage />),
               },
               {
                 path: 'schedule',
-                element: <AdminSchedulePage />,
+                element: withSuspense(<AdminSchedulePage />),
               },
               {
                 path: 'journal/:classId/:subjectId',
-                element: <JournalPage />,
+                element: withSuspense(<JournalPage />),
               },
               {
                 path: 'journal/:classId',
-                element: <JournalPage />,
+                element: withSuspense(<JournalPage />),
               },
             ],
           },
         ],
+      },
+      {
+        path: '*',
+        element: <NotFoundPage />,
       },
     ],
   },

@@ -56,6 +56,7 @@ export type RawAdminScheduleSlot = {
   shift: string
   subject_id: string
   subject_name: string
+  teacher_id?: string | null
   teacher_name: string
   room?: string | null
   note?: string | null
@@ -72,6 +73,7 @@ export type AdminScheduleSlotMapped = {
   shift: ShiftType
   subjectId: string
   subjectName: string
+  teacherId?: string | null
   teacherName: string
   room?: string | null
   note?: string | null
@@ -89,6 +91,7 @@ export function mapAdminScheduleSlot(raw: RawAdminScheduleSlot): AdminScheduleSl
     shift: raw.shift as ShiftType,
     subjectId: raw.subject_id,
     subjectName: raw.subject_name,
+    teacherId: raw.teacher_id ?? undefined,
     teacherName: raw.teacher_name,
     room: raw.room ?? undefined,
     note: raw.note ?? undefined,
