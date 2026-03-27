@@ -92,16 +92,6 @@ function formatDateCompact(isoDate: string): string {
   return `${d}.${m}`
 }
 
-function hasAnyGrade(data: JournalData): boolean {
-  for (const student of data.students) {
-    const byDate = data.grades[student.id] ?? {}
-    for (const date of data.dates) {
-      if (byDate[date] != null) return true
-    }
-  }
-  return false
-}
-
 export function JournalPage() {
   const navigate = useNavigate()
   const { classId, subjectId } = useParams()
@@ -305,7 +295,7 @@ export function JournalPage() {
       >
         {subjectId ? (
           journalData ? (
-            hasAnyGrade(journalData) ? (
+            journalData.students.length > 0 ? (
             <>
               <div className="block md:hidden">
                 <input
@@ -378,7 +368,7 @@ export function JournalPage() {
             </>
             ) : (
               <div className="rounded-xl border border-slate-200 bg-white px-4 py-8 text-center text-base text-slate-600 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                Журнал пока не содержит оценок
+                В этом классе пока нет учеников
               </div>
             )
           ) : null

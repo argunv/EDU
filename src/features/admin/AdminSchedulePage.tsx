@@ -92,6 +92,11 @@ export function AdminSchedulePage() {
     queryKey: ['admin', 'schedule', 'week', weekStart.toISOString(), selectedClassId, selectedShift],
     queryFn: () => getAdminScheduleWeek(weekStart.toISOString(), selectedClassId, selectedShift),
     enabled: isAdmin && Boolean(selectedClassId),
+    // Важный кейс: предмет могли удалить в другой вкладке админки.
+    // "always" гарантирует синхронизацию расписания при возврате во вкладку,
+    // даже если локальный кэш еще не устарел по staleTime.
+    refetchOnWindowFocus: 'always',
+    refetchOnMount: 'always',
   })
 
   useEffect(() => {

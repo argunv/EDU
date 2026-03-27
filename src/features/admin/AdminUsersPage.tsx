@@ -1,22 +1,14 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Check } from 'lucide-react'
 import { useState, useMemo } from 'react'
 import { toast } from 'sonner'
 
 import { getAdminClasses } from '../../api/admin'
-import {
-  getAdminPendingUsers,
-  getAdminAllUsers,
-  getAdminAllStudents,
-  getAdminAllSubjects,
-  approveAdminUser,
-  patchAdminUserRole,
-  rejectAdminUser,
-  type ApprovePayload,
-} from '../../api/adminUsers'
+import { getAdminAllStudents, getAdminAllSubjects, approveAdminUser, patchAdminUserRole, type ApprovePayload } from '../../api/adminUsers'
 import { StateWrapper } from '../../components/shared/StateWrapper'
 import type { AdminUser } from '../../types/user'
 import type { ApprovedRole } from '../../types/user'
+import { useAdminUsersData } from './hooks/useAdminUsersData'
 
 const ROLE_LABELS: Record<ApprovedRole, string> = {
   teacher: 'Учитель',
@@ -315,39 +307,16 @@ function AssignRoleModal({ user, onClose, onSuccess, isEdit }: AssignRoleModalPr
   )
 }
 
-function matchesSearch(user: { name: string; email?: string | null }, q: string): boolean {
-  const trimmed = q.trim().toLowerCase()
-  if (!trimmed) return true
-  const nameMatch = (user.name ?? '').toLowerCase().includes(trimmed)
-  const emailMatch = (user.email ?? '').toLowerCase().includes(trimmed)
-  return nameMatch || emailMatch
-}
-
 export function AdminUsersPage() {
   const [tab, setTab] = useState<Tab>('pending')
   const [searchQuery, setSearchQuery] = useState('')
   const [roleFilter, setRoleFilter] = useState<RoleFilter>('')
   const [assignUser, setAssignUser] = useState<AdminUser | null>(null)
   const [assignIsEdit, setAssignIsEdit] = useState(false)
-  const queryClient = useQueryClient()
-
-  const pendingQuery = useQuery({
-    queryKey: ['admin', 'users', 'pending'],
-    queryFn: getAdminPendingUsers,
-  })
-  const allQuery = useQuery({
-    queryKey: ['admin', 'users', 'all'],
-    queryFn: getAdminAllUsers,
-  })
-
-  const rejectMutation = useMutation({
-    mutationFn: rejectAdminUser,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin', 'users'] })
-      toast.success('Заявка отклонена')
-    },
-    onError: (e) => toast.error(e instanceof Error ? e.message : 'Ошибка'),
-  })
+  const { pendingQuery, allQuery, rejectMutation, classById, pendingFiltered, allFiltered } = useAdminUsersData(
+    searchQuery,
+    roleFilter,
+  )
 
   const handleReject = (user: AdminUser) => {
     if (!window.confirm(`Отклонить заявку от ${user.name}?`)) return
@@ -358,30 +327,6 @@ export function AdminUsersPage() {
     setAssignUser(user)
     setAssignIsEdit(isEdit)
   }
-
-  const { data: classesList = [] } = useQuery({
-    queryKey: ['admin', 'classes'],
-    queryFn: () => getAdminClasses(),
-  })
-  const classById = useMemo(() => {
-    const m: Record<string, string> = {}
-    classesList.forEach((c) => { m[c.id] = c.name })
-    return m
-  }, [classesList])
-
-  const pendingFiltered = useMemo(() => {
-    const list = pendingQuery.data ?? []
-    return list.filter((u) => matchesSearch(u, searchQuery))
-  }, [pendingQuery.data, searchQuery])
-
-  const allFiltered = useMemo(() => {
-    const list = allQuery.data ?? []
-    return list.filter((u) => {
-      if (!matchesSearch(u, searchQuery)) return false
-      if (roleFilter && u.role !== roleFilter) return false
-      return true
-    })
-  }, [allQuery.data, searchQuery, roleFilter])
 
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 px-4 py-6">
