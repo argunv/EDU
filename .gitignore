@@ -11,4 +11,8 @@ __pycache__/
 .pytest_cache/
 .coverage
 htmlcov/
+coverage/
 .mypy_cache/
+*.ignore
+.cursor/
+.cursorignore
