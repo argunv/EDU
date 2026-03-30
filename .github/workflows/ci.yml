@@ -49,21 +49,17 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-    # Postgres только на время job; пароль не хранится в репозитории.
-    # Настройка: Settings → Secrets and variables → Actions → repository secret
-    #   CI_POSTGRES_PASSWORD — любой надёжный пароль (не от prod).
-    # pull_request из fork не получает secrets — job упадёт на проверке; это ожидаемо.
     services:
       postgres:
         image: postgres:16-alpine
         env:
-          POSTGRES_USER: postgres
+          POSTGRES_USER: ${{ vars.CI_POSTGRES_USER }}
           POSTGRES_PASSWORD: ${{ secrets.CI_POSTGRES_PASSWORD }}
-          POSTGRES_DB: abh_edu_test
+          POSTGRES_DB: ${{ vars.CI_POSTGRES_DB }}
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U postgres -d abh_edu_test"
+          --health-cmd "pg_isready"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
@@ -77,14 +73,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Require CI postgres secret
-        env:
-          CI_POSTGRES_PASSWORD: ${{ secrets.CI_POSTGRES_PASSWORD }}
-        run: |
-          if [ -z "${CI_POSTGRES_PASSWORD:-}" ]; then
-            echo "::error::Задайте secret CI_POSTGRES_PASSWORD (пароль ephemeral Postgres в CI, не из production)."
-            exit 1
-          fi
       - name: Install Poetry
         run: pip install poetry
       - name: Install backend deps
@@ -93,10 +81,12 @@ jobs:
         run: poetry run flake8 app && poetry run bandit -r app
       - name: Configure DATABASE_URL
         env:
+          CI_POSTGRES_USER: ${{ vars.CI_POSTGRES_USER }}
+          CI_POSTGRES_DB: ${{ vars.CI_POSTGRES_DB }}
           CI_POSTGRES_PASSWORD: ${{ secrets.CI_POSTGRES_PASSWORD }}
         run: |
           ENC=$(python3 -c "import urllib.parse, os; print(urllib.parse.quote(os.environ['CI_POSTGRES_PASSWORD'], safe=''))")
-          echo "DATABASE_URL=postgresql+psycopg2://postgres:${ENC}@127.0.0.1:5432/abh_edu_test" >> "$GITHUB_ENV"
+          echo "DATABASE_URL=postgresql+psycopg2://${CI_POSTGRES_USER}:${ENC}@127.0.0.1:5432/${CI_POSTGRES_DB}" >> "$GITHUB_ENV"
       - name: Apply DB migrations
         run: poetry run alembic upgrade head
       - name: Test
