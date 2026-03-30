@@ -78,9 +78,14 @@ api.interceptors.response.use(
         if (!parsed.success) {
           throw new Error('Invalid refresh response format')
         }
-        const accessToken = parsed.data.access_token ?? parsed.data.accessToken
+        const raw = parsed.data.access_token ?? parsed.data.accessToken
+        const accessToken =
+          typeof raw === 'string' && raw.trim() !== '' ? raw.trim() : null
+        if (!accessToken) {
+          throw new Error('Refresh response missing access token')
+        }
         const user = parsed.data.user
-        if (setToken && accessToken) setToken(accessToken)
+        setToken?.(accessToken)
         if (setUser && user) {
           setUser({
             id: user.id,
