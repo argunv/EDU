@@ -1,10 +1,11 @@
 import uuid
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from jose import jwt
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.timeutil import now
 from app.services.auth import (
     hash_password,
     verify_password,
@@ -69,7 +70,7 @@ def test_decode_access_token_invalid():
 
 
 def test_decode_access_token_rejects_non_access_type():
-    expire = datetime.utcnow() + timedelta(minutes=5)
+    expire = now() + timedelta(minutes=5)
     token = jwt.encode(
         {"sub": str(uuid.uuid4()), "exp": expire, "type": "refresh"},
         settings.jwt_secret,

@@ -1,10 +1,21 @@
-from pydantic_settings import BaseSettings
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+from pydantic import Field, field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
     # Environment: "development" | "production". In production, secrets are
     # validated at startup.
     environment: str = "development"
+
+    # IANA name: UTC, Europe/Moscow, … (APP_TIMEZONE в .env)
+    app_timezone: str = Field(
+        default="UTC",
+        description="IANA timezone for application 'now' and ORM defaults",
+    )
 
     # Database
     database_url: str = "postgresql+psycopg2://postgres:postgres@localhost:5432/abh_edu"
@@ -45,9 +56,16 @@ class Settings(BaseSettings):
     rate_limit_reset: str = "5/60"
     rate_limit_fail_closed: bool = True
 
-    class Config:
-        env_file = ".env"
-        extra = "ignore"
+    @field_validator("app_timezone")
+    @classmethod
+    def timezone_must_be_valid_iana(cls, v: str) -> str:
+        try:
+            ZoneInfo(v)
+        except ZoneInfoNotFoundError as e:
+            raise ValueError(
+                f"Invalid app_timezone / APP_TIMEZONE: {v!r}. Use an IANA name, e.g. UTC."
+            ) from e
+        return v
 
 
 settings = Settings()

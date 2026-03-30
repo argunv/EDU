@@ -19,9 +19,10 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def _current_school_year_from_connection(conn) -> int:
     """Учебный год: если месяц >= 9, то текущий год, иначе текущий - 1."""
-    from datetime import datetime
-    now = datetime.utcnow()
-    return now.year if now.month >= 9 else now.year - 1
+    from datetime import datetime, timezone
+
+    dt = datetime.now(timezone.utc)
+    return dt.year if dt.month >= 9 else dt.year - 1
 
 
 def upgrade() -> None:

@@ -1,9 +1,15 @@
 """Проверки жёстких правил production-секретов (регресс на небезопасный деплой)."""
 
 import pytest
+from pydantic import ValidationError
 
 from app.core import config
-from app.core.config import validate_production_secrets
+from app.core.config import Settings, validate_production_secrets
+
+
+def test_settings_rejects_invalid_app_timezone():
+    with pytest.raises(ValidationError, match="app_timezone|Invalid"):
+        Settings(app_timezone="NotA/Valid_Timezone_Name_XXX")
 
 
 def test_validate_production_secrets_skips_non_production(monkeypatch):

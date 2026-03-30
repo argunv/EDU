@@ -1,11 +1,12 @@
 import unicodedata
-from datetime import date, datetime
+from datetime import date
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import and_, or_
 from sqlalchemy.exc import IntegrityError
 
+from app.core.timeutil import now
 from app.deps import AdminUser, DbSession
 from app.models.user import User
 from app.models.role_profiles import (
@@ -60,8 +61,8 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 
 def _get_current_school_year() -> int:
     """Учебный год: если месяц >= 9, то текущий год, иначе текущий - 1."""
-    now = datetime.utcnow()
-    return now.year if now.month >= 9 else now.year - 1
+    dt = now()
+    return dt.year if dt.month >= 9 else dt.year - 1
 
 
 def _class_to_admin_response(c: Class) -> AdminClassResponse:
@@ -79,7 +80,7 @@ def _class_to_admin_response(c: Class) -> AdminClassResponse:
 
 
 def _load_admin_user_response(db, user: User) -> AdminUserResponse:
-    created_at = user.created_at or datetime.utcnow()
+    created_at = user.created_at or now()
     class_id = None
     child_ids = None
     class_ids = None

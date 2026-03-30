@@ -1,9 +1,10 @@
 import uuid
-from datetime import datetime
+
 from sqlalchemy import Column, String, DateTime, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
+from app.core.timeutil import now
 from app.models.base import Base
 
 
@@ -16,7 +17,7 @@ class User(Base):
     name = Column(String(255), nullable=False)
     # pending, rejected, teacher, student, parent, admin
     role = Column(String(20), nullable=False, default="pending")
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=now)
     class_id = Column(
         UUID(as_uuid=True), ForeignKey("classes.id"), nullable=True
     )  # for student
@@ -43,7 +44,7 @@ class RefreshToken(Base):
     token_hash = Column(String(255), nullable=False, unique=True, index=True)
     expires_at = Column(DateTime(timezone=True), nullable=False)
     revoked = Column(String(1), default="N")  # Y/N
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=now)
 
     user = relationship("User", back_populates="refresh_tokens")
 
@@ -59,6 +60,6 @@ class PasswordResetToken(Base):
     )
     token_hash = Column(String(255), nullable=False, unique=True, index=True)
     expires_at = Column(DateTime(timezone=True), nullable=False)
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=now)
 
     user = relationship("User", back_populates="password_reset_tokens")

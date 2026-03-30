@@ -47,19 +47,57 @@ jobs:
   backend:
     name: Backend Lint/Test
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    # Postgres только на время job; пароль не хранится в репозитории.
+    # Настройка: Settings → Secrets and variables → Actions → repository secret
+    #   CI_POSTGRES_PASSWORD — любой надёжный пароль (не от prod).
+    # pull_request из fork не получает secrets — job упадёт на проверке; это ожидаемо.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ${{ secrets.CI_POSTGRES_PASSWORD }}
+          POSTGRES_DB: abh_edu_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d abh_edu_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     defaults:
       run:
         working-directory: backend
+    env:
+      RATE_LIMIT_FAIL_CLOSED: "false"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Require CI postgres secret
+        env:
+          CI_POSTGRES_PASSWORD: ${{ secrets.CI_POSTGRES_PASSWORD }}
+        run: |
+          if [ -z "${CI_POSTGRES_PASSWORD:-}" ]; then
+            echo "::error::Задайте secret CI_POSTGRES_PASSWORD (пароль ephemeral Postgres в CI, не из production)."
+            exit 1
+          fi
       - name: Install Poetry
         run: pip install poetry
       - name: Install backend deps
         run: poetry install --with dev
       - name: Lint
         run: poetry run flake8 app && poetry run bandit -r app
+      - name: Configure DATABASE_URL
+        env:
+          CI_POSTGRES_PASSWORD: ${{ secrets.CI_POSTGRES_PASSWORD }}
+        run: |
+          ENC=$(python3 -c "import urllib.parse, os; print(urllib.parse.quote(os.environ['CI_POSTGRES_PASSWORD'], safe=''))")
+          echo "DATABASE_URL=postgresql+psycopg2://postgres:${ENC}@127.0.0.1:5432/abh_edu_test" >> "$GITHUB_ENV"
+      - name: Apply DB migrations
+        run: poetry run alembic upgrade head
       - name: Test
         run: poetry run pytest -v --cov=app --cov-report=term-missing --cov-fail-under=80

@@ -1,10 +1,11 @@
 import uuid
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from fastapi.testclient import TestClient
 from jose import jwt
 
 from app.core.config import settings
+from app.core.timeutil import now
 from app.services.auth import create_access_token
 
 
@@ -35,7 +36,7 @@ def test_require_roles_teacher_only(client: TestClient, auth_headers):
 
 def test_optional_bearer_non_access_type_yields_unauthorized(client: TestClient, admin_user):
     """JWT не с type=access трактуется как отсутствие пользователя для опциональной auth."""
-    expire = datetime.utcnow() + timedelta(minutes=5)
+    expire = now() + timedelta(minutes=5)
     token = jwt.encode(
         {"sub": str(admin_user.id), "exp": expire, "type": "refresh"},
         settings.jwt_secret,
@@ -46,7 +47,7 @@ def test_optional_bearer_non_access_type_yields_unauthorized(client: TestClient,
 
 
 def test_optional_bearer_malformed_sub_returns_401(client: TestClient):
-    expire = datetime.utcnow() + timedelta(minutes=5)
+    expire = now() + timedelta(minutes=5)
     token = jwt.encode(
         {"sub": "not-a-uuid", "exp": expire, "type": "access"},
         settings.jwt_secret,

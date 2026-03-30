@@ -5,6 +5,10 @@
 Каждый тест получает изолированную сессию и схему (create_all/drop_all).
 """
 import os
+
+# До любых импортов app.*: в main монтируются маршруты без префикса /api для совместимости с тестами.
+os.environ["ENVIRONMENT"] = "test"
+
 import uuid
 from collections.abc import Generator
 

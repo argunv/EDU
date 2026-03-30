@@ -1,5 +1,5 @@
 import secrets
-from datetime import datetime, timedelta
+from datetime import timedelta
 from uuid import UUID
 
 import bcrypt
@@ -7,6 +7,7 @@ from jose import JWTError, jwt
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.timeutil import now
 from app.models.user import User, RefreshToken
 
 # bcrypt truncates at 72 bytes; normalize to bytes and cap to avoid errors
@@ -27,7 +28,7 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 
 def create_access_token(user_id: str) -> str:
-    expire = datetime.utcnow() + timedelta(minutes=settings.access_token_expire_minutes)
+    expire = now() + timedelta(minutes=settings.access_token_expire_minutes)
     payload = {"sub": str(user_id), "exp": expire, "type": "access"}
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
@@ -50,7 +51,7 @@ def create_refresh_token(db: Session, user_id: UUID) -> tuple[str, RefreshToken]
     import hashlib
 
     token_hash = hashlib.sha256(raw.encode()).hexdigest()
-    expires_at = datetime.utcnow() + timedelta(days=settings.refresh_token_expire_days)
+    expires_at = now() + timedelta(days=settings.refresh_token_expire_days)
     ref = RefreshToken(
         user_id=user_id,
         token_hash=token_hash,
@@ -87,7 +88,7 @@ def find_valid_refresh_token(db: Session, token_hash: str) -> RefreshToken | Non
         .filter(
             RefreshToken.token_hash == token_hash,
             RefreshToken.revoked == "N",
-            RefreshToken.expires_at > datetime.utcnow(),
+            RefreshToken.expires_at > now(),
         )
         .first()
     )

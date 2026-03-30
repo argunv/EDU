@@ -1,10 +1,11 @@
 import hashlib
 import secrets
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
 
 from app.core.config import settings
+from app.core.timeutil import now
 from app.deps import DbSession
 from app.models.user import User, PasswordResetToken
 from app.models.role_profiles import UserRole
@@ -196,7 +197,7 @@ def forgot_password(
     if user:
         token_raw = secrets.token_urlsafe(32)
         token_hash = hashlib.sha256(token_raw.encode()).hexdigest()
-        expires = datetime.utcnow() + timedelta(hours=1)
+        expires = now() + timedelta(hours=1)
         pt = PasswordResetToken(
             user_id=user.id, token_hash=token_hash, expires_at=expires
         )
@@ -230,7 +231,7 @@ def reset_password(
         db.query(PasswordResetToken)
         .filter(
             PasswordResetToken.token_hash == token_hash,
-            PasswordResetToken.expires_at > datetime.utcnow(),
+            PasswordResetToken.expires_at > now(),
         )
         .first()
     )

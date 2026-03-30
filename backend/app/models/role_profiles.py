@@ -12,6 +12,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import UUID
 
+from app.core.timeutil import now
 from app.models.base import Base
 
 
@@ -33,7 +34,7 @@ class UserRole(Base):
     )
     role = Column(String(20), nullable=False)
     created_at = Column(
-        DateTime(timezone=True), default=datetime.utcnow, nullable=False
+        DateTime(timezone=True), default=now, nullable=False
     )
 
 
