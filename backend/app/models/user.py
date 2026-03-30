@@ -9,6 +9,10 @@ from app.models.base import Base
 
 
 class User(Base):
+    """Пользователь. Для ученика активный класс в API (/me, relation_access) —
+    из ClassEnrollment через get_active_enrollment; колонка class_id дублирует класс
+    при операциях админки и простых выборках; при ручных правках БД возможен рассинхрон."""
+
     __tablename__ = "users"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -20,7 +24,7 @@ class User(Base):
     created_at = Column(DateTime(timezone=True), default=now)
     class_id = Column(
         UUID(as_uuid=True), ForeignKey("classes.id"), nullable=True
-    )  # for student
+    )  # ученик: денормализация в паре с ClassEnrollment (канон — enrollment)
 
     refresh_tokens = relationship(
         "RefreshToken", back_populates="user", cascade="all, delete-orphan"

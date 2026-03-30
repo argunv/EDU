@@ -75,6 +75,9 @@ class ParentProfile(Base):
 
 
 class ClassEnrollment(Base):
+    """Зачисление ученика в класс на период. Канон для «текущего класса» в API —
+    get_active_enrollment (например /me/schedule, список детей)."""
+
     __tablename__ = "class_enrollments"
     __table_args__ = (
         UniqueConstraint(
