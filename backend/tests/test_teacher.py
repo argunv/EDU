@@ -11,7 +11,7 @@ WEEKDAY_LABELS = ("monday", "tuesday", "wednesday", "thursday", "friday", "satur
 
 
 @pytest.fixture
-def schedule_slot_today(db, class_1a, subject_math):
+def schedule_slot_today(db, class_1a, subject_math, teacher_user):
     """Слот расписания на сегодня (для генерации уроков из расписания)."""
     today = date.today()
     day_label = WEEKDAY_LABELS[today.weekday()]
@@ -23,6 +23,7 @@ def schedule_slot_today(db, class_1a, subject_math):
         lesson_number=1,
         time="09:00",
         shift="morning",
+        teacher_id=teacher_user.id,
         teacher_name="Teacher",
         room="101",
     )
@@ -33,7 +34,7 @@ def schedule_slot_today(db, class_1a, subject_math):
 
 
 @pytest.fixture
-def schedule_slot_monday(db, class_1a, subject_math):
+def schedule_slot_monday(db, class_1a, subject_math, teacher_user):
     """Слот расписания на понедельник (детерминированный тест)."""
     slot = ScheduleSlot(
         id=uuid.uuid4(),
@@ -43,6 +44,7 @@ def schedule_slot_monday(db, class_1a, subject_math):
         lesson_number=1,
         time="09:00",
         shift="morning",
+        teacher_id=teacher_user.id,
         teacher_name="Teacher",
         room="101",
     )

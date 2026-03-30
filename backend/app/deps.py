@@ -3,15 +3,16 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import Depends, HTTPException, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials, APIKeyHeader
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
 from app.models.user import User
+from app.services.relation_access import get_user_roles
 
 
 def get_db() -> Generator[Session, None, None]:
     from app.db.session import SessionLocal
+
     db = SessionLocal()
     try:
         yield db
@@ -25,12 +26,15 @@ optional_bearer = HTTPBearer(auto_error=False)
 
 def get_current_user_optional(
     db: Annotated[Session, Depends(get_db)],
-    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(optional_bearer)],
+    credentials: Annotated[
+        HTTPAuthorizationCredentials | None, Depends(optional_bearer)
+    ],
 ) -> User | None:
     """Return current user from Bearer token or None if no/invalid token."""
     if not credentials:
         return None
     from app.services.auth import decode_access_token
+
     payload = decode_access_token(credentials.credentials)
     if not payload:
         return None
@@ -58,16 +62,20 @@ def get_current_user(
 
 
 def require_roles(allowed_roles: list[str]):
-    """Dependency factory: require current user to have one of the given roles."""
+    """Require current user to have one of allowed_roles (dependency factory)."""
+
     def _require_roles(
         current_user: Annotated[User, Depends(get_current_user)],
+        db: Annotated[Session, Depends(get_db)],
     ) -> User:
-        if current_user.role not in allowed_roles:
+        roles = get_user_roles(db, current_user.id)
+        if not roles.intersection(allowed_roles):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Insufficient permissions",
             )
         return current_user
+
     return _require_roles
 
 

@@ -1,15 +1,6 @@
-import { createContext, useCallback, useContext } from 'react'
+import { useCallback } from 'react'
 
-export type BackTarget =
-  | { type: 'href'; href: string }
-  | { type: 'callback'; onBack: () => void }
-
-type HeaderBackContextValue = {
-  setBack: (hrefOrCallback: string | (() => void)) => void
-  clearBack: () => void
-}
-
-const HeaderBackContext = createContext<HeaderBackContextValue | null>(null)
+import { HeaderBackContext, type BackTarget } from './headerBack'
 
 export function HeaderBackProvider({
   children,
@@ -26,7 +17,7 @@ export function HeaderBackProvider({
         setBackTarget({ type: 'callback', onBack: hrefOrCallback })
       }
     },
-    [setBackTarget]
+    [setBackTarget],
   )
   const clearBack = useCallback(() => setBackTarget(null), [setBackTarget])
   return (
@@ -34,8 +25,4 @@ export function HeaderBackProvider({
       {children}
     </HeaderBackContext.Provider>
   )
-}
-
-export function useHeaderBack() {
-  return useContext(HeaderBackContext)
 }

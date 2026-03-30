@@ -20,7 +20,9 @@ export function ProtectedRoute({ allowedRoles }: ProtectedRouteProps) {
   const { user, ready } = useAuth()
 
   if (!ready) {
-    return null
+    return (
+      <div className="px-4 py-6 text-sm text-slate-600">Загрузка...</div>
+    )
   }
   if (!user) {
     return <Navigate to="/auth/login" replace />

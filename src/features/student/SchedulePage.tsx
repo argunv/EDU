@@ -56,13 +56,17 @@ function weekStartToISO(d: Date): string {
   return d.toISOString().split('T')[0]
 }
 
-/** Текущий учебный год: если месяц >= 9, то текущий год, иначе предыдущий. */
+/**
+ * Текущий учебный год: если месяц >= 9, то текущий год, иначе предыдущий.
+ * Локальный календарь браузера. Правило совпадает по смыслу с сервером (админка uses APP_TIMEZONE),
+ * но канон для серверной логики не дублируем — эти границы только ограничивают UX-навигацию недель.
+ */
 function getCurrentSchoolYear(): number {
   const now = new Date()
   return now.getMonth() >= 8 ? now.getFullYear() : now.getFullYear() - 1
 }
 
-/** Границы учебного года: 1 сентября — 31 мая. Возвращает понедельники недель начала и конца. */
+/** Границы учебного года для клипа prev/next: 1 сентября — 31 мая (понедельники недель краёв). Не участвует в API. */
 function getSchoolYearWeekBounds(): { firstMonday: Date; lastMonday: Date } {
   const year = getCurrentSchoolYear()
   const start = new Date(year, 8, 1) // 1 сентября

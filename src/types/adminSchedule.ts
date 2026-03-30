@@ -18,6 +18,7 @@ export type AdminScheduleSlot = {
   shift: ShiftType
   subjectId: string
   subjectName: string
+  teacherId?: string
   teacherName: string
   room?: string
   note?: string
@@ -33,6 +34,7 @@ export type AdminScheduleSlotDraft = {
   shift: ShiftType
   subjectId: string
   subjectName: string
+  teacherId?: string
   teacherName: string
   room?: string
   note?: string

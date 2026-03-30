@@ -1,19 +1,9 @@
 import { Plus } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { toast } from 'sonner'
-
-import {
-  archiveAdminClass,
-  createAdminClass,
-  getAdminClasses,
-  getAdminClassSubjects,
-  patchAdminClass,
-} from '../../api/admin'
-import type { ClassItem } from '../../api/admin'
-import { useHeaderBack } from '../../contexts/HeaderBackContext'
+import { useHeaderBack } from '../../contexts/useHeaderBack'
 import { StateWrapper } from '../../components/shared/StateWrapper'
+import { useClassesPageData, type ClassItem } from './hooks/useClassesPageData'
 
 function getCurrentSchoolYear(): number {
   const now = new Date()
@@ -214,81 +204,23 @@ export function ClassesPage() {
   const [editModalClass, setEditModalClass] = useState<ClassItem | null>(null)
   const [showJournalSubjects, setShowJournalSubjects] = useState(false)
   const navigate = useNavigate()
-  const queryClient = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
-  const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['admin', 'classes', includeArchived],
-    queryFn: () => getAdminClasses({ includeArchived }),
-  })
+  const urlClassId = searchParams.get('classId')
+  const {
+    classesQuery,
+    displayData,
+    effectiveSelectedId,
+    selectedClass,
+    classSubjectsQuery,
+    createClassMutation,
+    patchClassMutation,
+    archiveClassMutation,
+  } = useClassesPageData(includeArchived, selectedClassId, urlClassId)
 
-  const displayData = useMemo(() => {
-    if (!data) return []
-    if (includeArchived) return data.filter((c) => c.archived === true)
-    return data
-  }, [data, includeArchived])
-
-  const selectedClass = displayData.find((item) => item.id === selectedClassId)
-
-  const classSubjectsQuery = useQuery({
-    queryKey: ['admin', 'subjects', selectedClass?.id],
-    queryFn: () => getAdminClassSubjects(selectedClass!.id),
-    enabled: Boolean(selectedClass?.id),
-  })
-
-  const createClassMutation = useMutation({
-    mutationFn: (params: {
-      yearStart: number
-      grade: number
-      letter: string
-      shift?: string
-      shiftLocked?: boolean
-      maxLessonsPerWeek?: number | null
-    }) => createAdminClass(params),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin', 'classes'] })
-      setCreateModalOpen(false)
-      toast.success('Класс создан')
-    },
-    onError: (err: Error) => {
-      toast.error(err.message || 'Не удалось создать класс')
-    },
-  })
-
-  const patchClassMutation = useMutation({
-    mutationFn: ({
-      classId,
-      params,
-    }: {
-      classId: string
-      params: { shift?: string; shiftLocked?: boolean; maxLessonsPerWeek?: number | null }
-    }) => patchAdminClass(classId, params),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin', 'classes'] })
-      setEditModalClass(null)
-      toast.success('Изменения сохранены')
-    },
-    onError: (err: Error) => {
-      toast.error(err.message || 'Не удалось сохранить')
-    },
-  })
-
-  const archiveClassMutation = useMutation({
-    mutationFn: (classId: string) => archiveAdminClass(classId),
-    onSuccess: (_, classId) => {
-      queryClient.invalidateQueries({ queryKey: ['admin', 'classes'] })
-      if (selectedClassId === classId) {
-        setSelectedClassId(null)
-        setSelectedLetter(null)
-        const nextParams = new URLSearchParams(searchParams)
-        nextParams.delete('classId')
-        setSearchParams(nextParams, { replace: true })
-      }
-      toast.success('Класс перемещён в архив')
-    },
-    onError: (err: Error) => {
-      toast.error(err.message || 'Не удалось архивировать')
-    },
-  })
+  const urlLocksClass = Boolean(
+    urlClassId && displayData.some((item) => item.id === urlClassId),
+  )
+  const effectiveShowJournalSubjects = urlLocksClass ? false : showJournalSubjects
 
   const classesByLetter = useMemo(() => {
     const result: Record<string, Array<{ id: string; name: string; number: number }>> = {}
@@ -319,15 +251,6 @@ export function ClassesPage() {
     return numbers
   }, [classesByLetter, selectedLetter])
 
-  useEffect(() => {
-    if (!data) return
-    const classIdParam = searchParams.get('classId')
-    if (classIdParam && displayData.some((item) => item.id === classIdParam)) {
-      setSelectedClassId(classIdParam)
-      setShowJournalSubjects(false)
-    }
-  }, [data, displayData, searchParams])
-
   const handleSelectClass = (classId: string) => {
     setSelectedClassId(classId)
     const nextParams = new URLSearchParams(searchParams)
@@ -335,11 +258,11 @@ export function ClassesPage() {
     setSearchParams(nextParams, { replace: true })
   }
 
-  const showBack = Boolean(selectedLetter || selectedClassId)
+  const showBack = Boolean(selectedLetter || effectiveSelectedId)
   const headerBack = useHeaderBack()
 
   const handleBack = useCallback(() => {
-    if (selectedClassId) {
+    if (effectiveSelectedId) {
       setSelectedClassId(null)
       const nextParams = new URLSearchParams(searchParams)
       nextParams.delete('classId')
@@ -351,7 +274,7 @@ export function ClassesPage() {
       return
     }
     navigate('/admin/classes')
-  }, [selectedClassId, selectedLetter, searchParams, setSearchParams, navigate])
+  }, [effectiveSelectedId, selectedLetter, searchParams, setSearchParams, navigate])
 
   useEffect(() => {
     if (!headerBack) return
@@ -369,10 +292,10 @@ export function ClassesPage() {
       </header>
 
       <StateWrapper
-        isLoading={isLoading}
-        isError={isError}
-        isEmpty={!isLoading && !isError && displayData.length === 0}
-        onRetry={refetch}
+        isLoading={classesQuery.isLoading}
+        isError={classesQuery.isError}
+        isEmpty={!classesQuery.isLoading && !classesQuery.isError && displayData.length === 0}
+        onRetry={() => classesQuery.refetch()}
         emptyTitle={includeArchived ? 'Нет архивных классов' : 'Нет классов'}
         emptyDescription={
           includeArchived
@@ -415,7 +338,17 @@ export function ClassesPage() {
                       type="button"
                       onClick={() => {
                         if (window.confirm('Переместить класс в архив? Ученики и расписание сохранятся.')) {
-                          archiveClassMutation.mutate(selectedClass.id)
+                          archiveClassMutation.mutate(selectedClass.id, {
+                            onSuccess: () => {
+                              if (effectiveSelectedId === selectedClass.id) {
+                                setSelectedClassId(null)
+                                setSelectedLetter(null)
+                                const nextParams = new URLSearchParams(searchParams)
+                                nextParams.delete('classId')
+                                setSearchParams(nextParams, { replace: true })
+                              }
+                            },
+                          })
                         }
                       }}
                       disabled={archiveClassMutation.isPending}
@@ -449,7 +382,7 @@ export function ClassesPage() {
                 </button>
               </div>
 
-              {showJournalSubjects && (
+              {effectiveShowJournalSubjects && (
                 <StateWrapper
                   isLoading={classSubjectsQuery.isLoading}
                   isError={classSubjectsQuery.isError}
@@ -569,7 +502,11 @@ export function ClassesPage() {
       {createModalOpen ? (
         <CreateClassModal
           onClose={() => setCreateModalOpen(false)}
-          onSubmit={(params) => createClassMutation.mutate(params)}
+          onSubmit={(params) =>
+            createClassMutation.mutate(params, {
+              onSuccess: () => setCreateModalOpen(false),
+            })
+          }
           isSubmitting={createClassMutation.isPending}
         />
       ) : null}
@@ -578,7 +515,12 @@ export function ClassesPage() {
           classItem={editModalClass}
           onClose={() => setEditModalClass(null)}
           onSubmit={(params) =>
-            patchClassMutation.mutate({ classId: editModalClass.id, params })
+            patchClassMutation.mutate(
+              { classId: editModalClass.id, params },
+              {
+                onSuccess: () => setEditModalClass(null),
+              },
+            )
           }
           isSubmitting={patchClassMutation.isPending}
         />

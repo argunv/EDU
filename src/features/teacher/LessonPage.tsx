@@ -1,48 +1,28 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useParams, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 
 import { getTeacherLessons, submitGrades } from '../../api/teacher'
 import { PageHeader } from '../../components/layout/PageHeader'
+import type { Lesson } from '../../types/lesson'
 
-export function LessonPage() {
-  const { lessonId } = useParams()
-  const [searchParams] = useSearchParams()
+function LessonEditor({
+  lesson,
+  lessonId,
+}: {
+  lesson: Lesson
+  lessonId: string
+}) {
   const queryClient = useQueryClient()
-  const [topic, setTopic] = useState('')
-  const [homework, setHomework] = useState('')
-
-  const dayIndexParam = searchParams.get('dayIndex')
-  const weekOffsetParam = searchParams.get('weekOffset')
-  const parsedDayIndex = dayIndexParam ? Number(dayIndexParam) : 0
-  const parsedWeekOffset = weekOffsetParam ? Number(weekOffsetParam) : 0
-  const dayIndex = parsedDayIndex >= 0 && parsedDayIndex <= 6 ? parsedDayIndex : 0
-  const weekOffset =
-    parsedWeekOffset === -1 || parsedWeekOffset === 1 ? parsedWeekOffset : 0
-
-  const lessonsQuery = useQuery({
-    queryKey: ['teacher', 'lessons', weekOffset, dayIndex],
-    queryFn: () => getTeacherLessons({ weekOffset, dayIndex }),
-  })
-
-  const lesson = useMemo(
-    () => lessonsQuery.data?.find((item) => item.id === lessonId),
-    [lessonsQuery.data, lessonId],
-  )
-
-  useEffect(() => {
-    if (lesson) {
-      setTopic(lesson.topic ?? '')
-      setHomework(lesson.homeworkText ?? '')
-    }
-  }, [lesson?.id])
+  const [topic, setTopic] = useState(() => lesson.topic ?? '')
+  const [homework, setHomework] = useState(() => lesson.homeworkText ?? '')
 
   const isDirty = useMemo(() => {
-    const topicDirty = lesson ? (topic !== (lesson.topic ?? '')) : Boolean(topic)
-    const homeworkDirty = lesson ? (homework !== (lesson.homeworkText ?? '')) : Boolean(homework)
+    const topicDirty = topic !== (lesson.topic ?? '')
+    const homeworkDirty = homework !== (lesson.homeworkText ?? '')
     return topicDirty || homeworkDirty
-  }, [topic, homework, lesson])
+  }, [topic, homework, lesson.topic, lesson.homeworkText])
 
   const saveMutation = useMutation({
     mutationFn: submitGrades,
@@ -56,7 +36,6 @@ export function LessonPage() {
   })
 
   const handleSave = () => {
-    if (!lessonId) return
     saveMutation.mutate({
       lessonId,
       entries: [],
@@ -65,26 +44,8 @@ export function LessonPage() {
     })
   }
 
-  if (lessonsQuery.isLoading) {
-    return <div className="p-5 text-sm text-slate-600">Загрузка урока…</div>
-  }
-
-  if (lessonsQuery.isError || !lesson) {
-    return (
-      <div className="p-5 text-sm text-rose-700">
-        Не удалось открыть урок. Попробуйте позже.
-      </div>
-    )
-  }
-
   return (
-    <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 px-4 pb-24 pt-6">
-      <PageHeader
-        title={lesson.subject}
-        subtitle={`Класс ${lesson.className} • ${lesson.time}`}
-        backTo="/teacher/today"
-      />
-
+    <>
       <div className="grid gap-3">
         <input
           value={topic}
@@ -112,6 +73,53 @@ export function LessonPage() {
           </button>
         </div>
       </div>
+    </>
+  )
+}
+
+export function LessonPage() {
+  const { lessonId } = useParams()
+  const [searchParams] = useSearchParams()
+
+  const dayIndexParam = searchParams.get('dayIndex')
+  const weekOffsetParam = searchParams.get('weekOffset')
+  const parsedDayIndex = dayIndexParam ? Number(dayIndexParam) : 0
+  const parsedWeekOffset = weekOffsetParam ? Number(weekOffsetParam) : 0
+  const dayIndex = parsedDayIndex >= 0 && parsedDayIndex <= 6 ? parsedDayIndex : 0
+  const weekOffset =
+    parsedWeekOffset === -1 || parsedWeekOffset === 1 ? parsedWeekOffset : 0
+
+  const lessonsQuery = useQuery({
+    queryKey: ['teacher', 'lessons', weekOffset, dayIndex],
+    queryFn: () => getTeacherLessons({ weekOffset, dayIndex }),
+  })
+
+  const lesson = useMemo(
+    () => lessonsQuery.data?.find((item) => item.id === lessonId),
+    [lessonsQuery.data, lessonId],
+  )
+
+  if (lessonsQuery.isLoading) {
+    return <div className="p-5 text-sm text-slate-600">Загрузка урока…</div>
+  }
+
+  if (lessonsQuery.isError || !lesson || !lessonId) {
+    return (
+      <div className="p-5 text-sm text-rose-700">
+        Не удалось открыть урок. Попробуйте позже.
+      </div>
+    )
+  }
+
+  return (
+    <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 px-4 pb-24 pt-6">
+      <PageHeader
+        title={lesson.subject}
+        subtitle={`Класс ${lesson.className} • ${lesson.time}`}
+        backTo="/teacher/today"
+      />
+
+      <LessonEditor key={lesson.id} lesson={lesson} lessonId={lessonId} />
     </div>
   )
 }

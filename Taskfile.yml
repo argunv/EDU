@@ -4,6 +4,13 @@ vars:
   COMPOSE_DEV: "-f docker-compose.yml -f docker-compose.override.yml"
 
 tasks:
+  check:
+    desc: Unified local quality gate (frontend + backend)
+    cmd: |
+      npm run lint
+      npm run build
+      cd backend && poetry run flake8 app && poetry run bandit -r app && poetry run pytest -v --cov=app --cov-report=term-missing --cov-fail-under=80
+
   migrate:
     desc: Run Alembic migrations via Docker (starts postgres if needed, then runs automigrate)
     cmd: docker compose up -d postgres && docker compose run --rm automigrate
@@ -41,6 +48,10 @@ tasks:
     env:
       DATABASE_URL: postgresql+psycopg2://postgres:postgres@localhost:5432/abh_edu_test
 
+  test-frontend-cov:
+    desc: Run frontend tests с покрытием локально (Vitest)
+    cmd: npm run test -- --run --coverage
+
   lint-backend:
     desc: Run flake8 and bandit
     dir: backend
@@ -76,15 +87,19 @@ tasks:
     cmd: docker compose {{.COMPOSE_DEV}} exec -T postgres psql -U "{{.POSTGRES_USER}}" -d "{{.POSTGRES_DB}}" < backend/scripts/seed_dev.sql
 
   dev:
-    desc: Полный сброс и подъём в dev-режиме — clear, down -v, build, up, migrate, seed
+    desc: Полный сброс и подъём в dev-режиме — clear, down -v, build, up, seed, migrate (backfill-safe)
     cmd: |
       clear || true
       docker compose {{.COMPOSE_DEV}} down -v
       docker compose {{.COMPOSE_DEV}} build || docker compose {{.COMPOSE_DEV}} build
-      docker compose {{.COMPOSE_DEV}} up -d
+      # Важно: не стартуем `automigrate` автоматически, иначе оно выполнит backfill до seed.
+      docker compose {{.COMPOSE_DEV}} up -d postgres redis rabbitmq api web nginx notifier frontend-watch
       sleep 10
-      docker compose {{.COMPOSE_DEV}} run --rm automigrate
+      # Seed наполняет legacy-таблицы. Backfill (008) читает их, поэтому сначала докатываемся только до 007.
+      docker compose {{.COMPOSE_DEV}} run --rm automigrate sh -c "pip install alembic && sleep 5 && alembic upgrade 007"
       docker compose {{.COMPOSE_DEV}} exec -T postgres psql -U "{{.POSTGRES_USER}}" -d "{{.POSTGRES_DB}}" < backend/scripts/seed_dev.sql
+      # После seed докатываемся до head: выполняется 008 backfill и 010 integrity hardening.
+      docker compose {{.COMPOSE_DEV}} run --rm automigrate
   
   dbdown:
     desc: Remove all data from database using truncate

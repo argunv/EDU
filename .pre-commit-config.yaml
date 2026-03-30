@@ -1,0 +1,21 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-merge-conflict
+
+  - repo: local
+    hooks:
+      - id: frontend-lint
+        name: frontend-lint
+        entry: npm run lint
+        language: system
+        pass_filenames: false
+      - id: backend-lint
+        name: backend-lint
+        entry: sh -c "cd backend && poetry run flake8 app && poetry run bandit -r app"
+        language: system
+        pass_filenames: false

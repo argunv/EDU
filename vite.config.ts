@@ -11,6 +11,19 @@ export default defineConfig({
       '@': fileURLToPath(new URL('./src', import.meta.url)),
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return
+          if (id.includes('react-router')) return 'router'
+          if (id.includes('@tanstack/react-query')) return 'react-query'
+          if (id.includes('axios')) return 'http'
+          return 'vendor'
+        },
+      },
+    },
+  },
   // В dev запросы на /api идут на бэкенд — один origin, без CORS. Как в prod за nginx.
   server: {
     proxy: {

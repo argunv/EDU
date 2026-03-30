@@ -53,7 +53,7 @@ services:
       target: api
     command: sh -c "pip install alembic && sleep 5 && sh /app/run_migrate.sh"
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg2://postgres:postgres@postgres:5432/abh_edu}
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
     depends_on:
       postgres:
         condition: service_healthy
@@ -67,9 +67,12 @@ services:
       dockerfile: Dockerfile
       target: api-test
     environment:
-      DATABASE_URL: postgresql+psycopg2://postgres:postgres@postgres:5432/abh_edu_test
+      ENVIRONMENT: test
+      APP_TIMEZONE: ${APP_TIMEZONE:-UTC}
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:?POSTGRES_USER is required}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/abh_edu_test
+      RATE_LIMIT_FAIL_CLOSED: "false"
     # timeout 900 = макс 15 мин на всё, затем контейнер завершится (exit 124), чтобы не висел
-    command: sh -c "timeout 900 sh -c 'python scripts/ensure_test_db.py && alembic upgrade head && pytest tests/ -v --cov=app --cov-report=term-missing --cov-fail-under=0'"
+    command: sh -c "timeout 900 sh -c 'python scripts/ensure_test_db.py && alembic upgrade head && pytest tests/ -v --cov=app --cov-report=term-missing --cov-fail-under=80'"
     depends_on:
       postgres:
         condition: service_healthy
@@ -82,14 +85,16 @@ services:
       target: api
     environment:
       ENVIRONMENT: ${ENVIRONMENT:-development}
-      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg2://postgres:postgres@postgres:5432/abh_edu}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
-      RABBITMQ_URL: ${RABBITMQ_URL:-amqp://guest:guest@rabbitmq:5672/}
-      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      APP_TIMEZONE: ${APP_TIMEZONE:-UTC}
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      REDIS_URL: ${REDIS_URL:?REDIS_URL is required}
+      RABBITMQ_URL: ${RABBITMQ_URL:?RABBITMQ_URL is required}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      FRONTEND_URL: ${FRONTEND_URL:?FRONTEND_URL is required}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-15}
       REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS:-7}
       NOTIFIER_QUEUE: ${NOTIFIER_QUEUE:-email_tasks}
-      CORS_ORIGINS: ${CORS_ORIGINS:-'["http://localhost:5173","http://localhost:3000","http://localhost","http://localhost:80"]'}
+      CORS_ORIGINS: ${CORS_ORIGINS:?CORS_ORIGINS is required}
       RATE_LIMIT_LOGIN: ${RATE_LIMIT_LOGIN:-5/60}
       RATE_LIMIT_REGISTER: ${RATE_LIMIT_REGISTER:-3/60}
       RATE_LIMIT_FORGOT: ${RATE_LIMIT_FORGOT:-3/300}
@@ -115,14 +120,14 @@ services:
       dockerfile: Dockerfile
       target: notifier
     environment:
-      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
-      NOTIFIER_QUEUE: email_tasks
-      SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
-      SMTP_PORT: ${SMTP_PORT:-587}
-      SMTP_USER: ${SMTP_USER:-}
-      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
-      SMTP_FROM: ${SMTP_FROM:-noreply@example.com}
-      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
+      RABBITMQ_URL: ${RABBITMQ_URL:?RABBITMQ_URL is required}
+      NOTIFIER_QUEUE: ${NOTIFIER_QUEUE:-email_tasks}
+      SMTP_HOST: ${SMTP_HOST:?SMTP_HOST is required}
+      SMTP_PORT: ${SMTP_PORT:?SMTP_PORT is required}
+      SMTP_USER: ${SMTP_USER:?SMTP_USER is required}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:?SMTP_PASSWORD is required}
+      SMTP_FROM: ${SMTP_FROM:?SMTP_FROM is required}
+      FRONTEND_URL: ${FRONTEND_URL:?FRONTEND_URL is required}
     depends_on:
       rabbitmq:
         condition: service_healthy
