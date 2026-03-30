@@ -43,5 +43,6 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install poetry pip-audit
+      - run: poetry self add poetry-plugin-export --no-interaction
       - run: poetry export -f requirements.txt --without-hashes --with dev -o requirements.txt
       - run: pip-audit -r requirements.txt
