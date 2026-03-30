@@ -1,10 +1,11 @@
 import uuid
-import pytest
-from fastapi.testclient import TestClient
+from datetime import datetime, timedelta
 
-from app.models.user import User
-from app.models.class_model import Class
-from app.services.auth import hash_password, create_access_token
+from fastapi.testclient import TestClient
+from jose import jwt
+
+from app.core.config import settings
+from app.services.auth import create_access_token
 
 
 def test_get_current_user_optional_no_header(client: TestClient, db):
@@ -30,3 +31,33 @@ def test_require_roles_admin_only(client: TestClient, student_headers):
 def test_require_roles_teacher_only(client: TestClient, auth_headers):
     res = client.get("/api/teacher/lessons", headers=auth_headers)
     assert res.status_code == 403
+
+
+def test_optional_bearer_non_access_type_yields_unauthorized(client: TestClient, admin_user):
+    """JWT не с type=access трактуется как отсутствие пользователя для опциональной auth."""
+    expire = datetime.utcnow() + timedelta(minutes=5)
+    token = jwt.encode(
+        {"sub": str(admin_user.id), "exp": expire, "type": "refresh"},
+        settings.jwt_secret,
+        algorithm=settings.jwt_algorithm,
+    )
+    res = client.get("/api/classes", headers={"Authorization": f"Bearer {token}"})
+    assert res.status_code == 401
+
+
+def test_optional_bearer_malformed_sub_returns_401(client: TestClient):
+    expire = datetime.utcnow() + timedelta(minutes=5)
+    token = jwt.encode(
+        {"sub": "not-a-uuid", "exp": expire, "type": "access"},
+        settings.jwt_secret,
+        algorithm=settings.jwt_algorithm,
+    )
+    res = client.get("/api/classes", headers={"Authorization": f"Bearer {token}"})
+    assert res.status_code == 401
+
+
+def test_optional_bearer_valid_token_unknown_user_returns_401(client: TestClient):
+    ghost_id = str(uuid.uuid4())
+    token = create_access_token(ghost_id)
+    res = client.get("/api/classes", headers={"Authorization": f"Bearer {token}"})
+    assert res.status_code == 401

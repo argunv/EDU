@@ -1,7 +1,10 @@
 import uuid
-import pytest
+from datetime import datetime, timedelta
+
+from jose import jwt
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.services.auth import (
     hash_password,
     verify_password,
@@ -15,6 +18,18 @@ from app.services.auth import (
 )
 from app.models.user import User, RefreshToken
 from app.models.class_model import Class
+
+
+def _sample_class(grade: int, letter: str) -> Class:
+    return Class(
+        id=uuid.uuid4(),
+        name=f"{grade}{letter}",
+        year_start=2024,
+        grade=grade,
+        letter=letter,
+        shift="morning",
+        archived=False,
+    )
 
 
 def test_hash_password():
@@ -53,8 +68,18 @@ def test_decode_access_token_invalid():
     assert decode_access_token("") is None
 
 
+def test_decode_access_token_rejects_non_access_type():
+    expire = datetime.utcnow() + timedelta(minutes=5)
+    token = jwt.encode(
+        {"sub": str(uuid.uuid4()), "exp": expire, "type": "refresh"},
+        settings.jwt_secret,
+        algorithm=settings.jwt_algorithm,
+    )
+    assert decode_access_token(token) is None
+
+
 def test_create_refresh_token(db: Session):
-    cls = Class(id=uuid.uuid4(), name="1X", year_start=2024, grade=1, letter="X", shift="morning", archived=False)
+    cls = _sample_class(1, "X")
     db.add(cls)
     db.flush()
     user = User(
@@ -73,7 +98,7 @@ def test_create_refresh_token(db: Session):
 
 
 def test_revoke_refresh_token(db: Session):
-    cls = Class(id=uuid.uuid4(), name="2Y", year_start=2024, grade=2, letter="Y", shift="morning", archived=False)
+    cls = _sample_class(2, "Y")
     db.add(cls)
     db.flush()
     user = User(
@@ -95,7 +120,7 @@ def test_revoke_refresh_token(db: Session):
 
 
 def test_find_valid_refresh_token(db: Session):
-    cls = Class(id=uuid.uuid4(), name="3Z", year_start=2024, grade=3, letter="Z", shift="morning", archived=False)
+    cls = _sample_class(3, "Z")
     db.add(cls)
     db.flush()
     user = User(
@@ -115,7 +140,7 @@ def test_find_valid_refresh_token(db: Session):
 
 
 def test_rotate_refresh_token(db: Session):
-    cls = Class(id=uuid.uuid4(), name="4W", year_start=2024, grade=4, letter="W", shift="morning", archived=False)
+    cls = _sample_class(4, "W")
     db.add(cls)
     db.flush()
     user = User(
@@ -137,7 +162,7 @@ def test_rotate_refresh_token(db: Session):
 
 
 def test_revoke_all_refresh_tokens_for_user(db: Session):
-    cls = Class(id=uuid.uuid4(), name="5V", year_start=2024, grade=5, letter="V", shift="morning", archived=False)
+    cls = _sample_class(5, "V")
     db.add(cls)
     db.flush()
     user = User(
