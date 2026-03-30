@@ -1,4 +1,5 @@
 """Rate limiting via Redis."""
+
 import logging
 import re
 
@@ -8,7 +9,8 @@ logger = logging.getLogger(__name__)
 
 # Redis-backed limiter. If Redis is down and fail-closed is enabled,
 # auth endpoints are temporarily protected with 503 instead of fail-open.
-# _redis_failed: после первой неудачной попытки не повторяем (избегаем таймаутов на каждый запрос).
+# _redis_failed: после первой неудачной попытки не повторяем (избегаем
+# таймаутов на каждый запрос).
 _redis_client = None
 _redis_failed = False
 
@@ -22,7 +24,9 @@ def get_redis():
     try:
         import redis
         from app.core.config import settings
-        # Короткий таймаут, чтобы в тестах/без Redis не зависать на каждом auth-запросе
+
+        # Короткий таймаут, чтобы в тестах/без Redis не зависать на каждом
+        # auth-запросе
         _redis_client = redis.from_url(
             settings.redis_url,
             decode_responses=True,

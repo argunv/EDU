@@ -72,7 +72,11 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     correlation_id = getattr(request.state, "correlation_id", None)
     return JSONResponse(
         status_code=422,
-        content={"error": "validation_error", "detail": exc.errors(), "correlation_id": correlation_id},
+        content={
+            "error": "validation_error",
+            "detail": exc.errors(),
+            "correlation_id": correlation_id,
+        },
     )
 
 
@@ -81,7 +85,11 @@ async def http_exception_handler(request: Request, exc: HTTPException):
     correlation_id = getattr(request.state, "correlation_id", None)
     return JSONResponse(
         status_code=exc.status_code,
-        content={"error": "http_error", "detail": exc.detail, "correlation_id": correlation_id},
+        content={
+            "error": "http_error",
+            "detail": exc.detail,
+            "correlation_id": correlation_id,
+        },
     )
 
 
@@ -91,7 +99,11 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
     logger.exception("Unhandled exception [%s]: %s", correlation_id, exc)
     return JSONResponse(
         status_code=500,
-        content={"error": "internal_error", "detail": "Internal server error", "correlation_id": correlation_id},
+        content={
+            "error": "internal_error",
+            "detail": "Internal server error",
+            "correlation_id": correlation_id,
+        },
     )
 
 

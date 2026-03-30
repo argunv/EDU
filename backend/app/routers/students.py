@@ -1,13 +1,16 @@
-from uuid import UUID
+from fastapi import APIRouter, HTTPException, Query, status
 
-from fastapi import APIRouter, Query, Depends, HTTPException, status
-
-from app.deps import get_db, DbSession, CurrentUser
+from app.deps import CurrentUser, DbSession
 from app.models.user import User
 from app.models.class_model import Class
 from app.models.role_profiles import ClassEnrollment
 from app.schemas.classes import StudentOptionResponse
-from app.services.relation_access import get_active_enrollment, get_teacher_class_ids, get_user_roles, has_user_role
+from app.services.relation_access import (
+    get_active_enrollment,
+    get_teacher_class_ids,
+    get_user_roles,
+    has_user_role,
+)
 
 router = APIRouter(tags=["students"])
 
@@ -18,7 +21,8 @@ def list_students(
     db: DbSession = None,
     current_user: CurrentUser = None,
 ):
-    # Security: restrict to admin (full list) or teacher (own classes only); audit requirement for PII access.
+    # Security: restrict to admin (full list) or teacher (own classes only);
+    # audit requirement for PII access.
     roles = get_user_roles(db, current_user.id)
     if not roles.intersection({"admin", "teacher"}):
         raise HTTPException(
@@ -47,5 +51,7 @@ def list_students(
         if class_id:
             c = db.query(Class).filter(Class.id == class_id).first()
             class_name = c.name if c else ""
-        result.append(StudentOptionResponse(id=str(u.id), name=u.name, class_name=class_name))
+        result.append(
+            StudentOptionResponse(id=str(u.id), name=u.name, class_name=class_name)
+        )
     return result

@@ -11,7 +11,11 @@ import {
   type ClassItem,
 } from '../../../api/admin'
 
-export function useClassesPageData(includeArchived: boolean, selectedClassId: string | null) {
+export function useClassesPageData(
+  includeArchived: boolean,
+  selectedClassId: string | null,
+  urlClassId: string | null,
+) {
   const queryClient = useQueryClient()
 
   const classesQuery = useQuery({
@@ -24,9 +28,16 @@ export function useClassesPageData(includeArchived: boolean, selectedClassId: st
     return includeArchived ? data.filter((c) => c.archived === true) : data
   }, [classesQuery.data, includeArchived])
 
+  const effectiveSelectedId = useMemo(() => {
+    if (urlClassId && displayData.some((item) => item.id === urlClassId)) {
+      return urlClassId
+    }
+    return selectedClassId
+  }, [urlClassId, displayData, selectedClassId])
+
   const selectedClass = useMemo(
-    () => displayData.find((item) => item.id === selectedClassId),
-    [displayData, selectedClassId],
+    () => displayData.find((item) => item.id === effectiveSelectedId),
+    [displayData, effectiveSelectedId],
   )
 
   const classSubjectsQuery = useQuery({
@@ -66,6 +77,7 @@ export function useClassesPageData(includeArchived: boolean, selectedClassId: st
   return {
     classesQuery,
     displayData,
+    effectiveSelectedId,
     selectedClass,
     classSubjectsQuery,
     createClassMutation,

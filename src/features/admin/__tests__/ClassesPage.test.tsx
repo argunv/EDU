@@ -17,6 +17,7 @@ let hookState = {
 vi.mock('../hooks/useClassesPageData', () => ({
   useClassesPageData: () => ({
     ...hookState,
+    effectiveSelectedId: hookState.selectedClass?.id ?? null,
     createClassMutation: { mutate: createMutateMock, isPending: false },
     patchClassMutation: { mutate: patchMutateMock, isPending: false },
     archiveClassMutation: { mutate: vi.fn(), isPending: false },

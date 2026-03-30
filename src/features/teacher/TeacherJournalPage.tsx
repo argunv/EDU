@@ -249,7 +249,7 @@ export function TeacherJournalPage() {
                         value,
                       })
                       toast.success('Сохранено')
-                    } catch (error) {
+                    } catch {
                       toast.error('Не удалось сохранить')
                     }
                   }}

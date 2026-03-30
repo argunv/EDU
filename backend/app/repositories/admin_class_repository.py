@@ -8,7 +8,9 @@ class AdminClassRepository:
         self.db = db
 
     def list(self, include_archived: bool) -> list[Class]:
-        q = self.db.query(Class).order_by(Class.year_start.desc(), Class.grade, Class.letter)
+        q = self.db.query(Class).order_by(
+            Class.year_start.desc(), Class.grade, Class.letter
+        )
         if not include_archived:
             q = q.filter(Class.archived.is_(False))
         return q.all()

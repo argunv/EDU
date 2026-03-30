@@ -1,7 +1,7 @@
 import { Plus } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { useHeaderBack } from '../../contexts/HeaderBackContext'
+import { useHeaderBack } from '../../contexts/useHeaderBack'
 import { StateWrapper } from '../../components/shared/StateWrapper'
 import { useClassesPageData, type ClassItem } from './hooks/useClassesPageData'
 
@@ -205,15 +205,22 @@ export function ClassesPage() {
   const [showJournalSubjects, setShowJournalSubjects] = useState(false)
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
+  const urlClassId = searchParams.get('classId')
   const {
     classesQuery,
     displayData,
+    effectiveSelectedId,
     selectedClass,
     classSubjectsQuery,
     createClassMutation,
     patchClassMutation,
     archiveClassMutation,
-  } = useClassesPageData(includeArchived, selectedClassId)
+  } = useClassesPageData(includeArchived, selectedClassId, urlClassId)
+
+  const urlLocksClass = Boolean(
+    urlClassId && displayData.some((item) => item.id === urlClassId),
+  )
+  const effectiveShowJournalSubjects = urlLocksClass ? false : showJournalSubjects
 
   const classesByLetter = useMemo(() => {
     const result: Record<string, Array<{ id: string; name: string; number: number }>> = {}
@@ -244,15 +251,6 @@ export function ClassesPage() {
     return numbers
   }, [classesByLetter, selectedLetter])
 
-  useEffect(() => {
-    if (!classesQuery.data) return
-    const classIdParam = searchParams.get('classId')
-    if (classIdParam && displayData.some((item) => item.id === classIdParam)) {
-      setSelectedClassId(classIdParam)
-      setShowJournalSubjects(false)
-    }
-  }, [classesQuery.data, displayData, searchParams])
-
   const handleSelectClass = (classId: string) => {
     setSelectedClassId(classId)
     const nextParams = new URLSearchParams(searchParams)
@@ -260,11 +258,11 @@ export function ClassesPage() {
     setSearchParams(nextParams, { replace: true })
   }
 
-  const showBack = Boolean(selectedLetter || selectedClassId)
+  const showBack = Boolean(selectedLetter || effectiveSelectedId)
   const headerBack = useHeaderBack()
 
   const handleBack = useCallback(() => {
-    if (selectedClassId) {
+    if (effectiveSelectedId) {
       setSelectedClassId(null)
       const nextParams = new URLSearchParams(searchParams)
       nextParams.delete('classId')
@@ -276,7 +274,7 @@ export function ClassesPage() {
       return
     }
     navigate('/admin/classes')
-  }, [selectedClassId, selectedLetter, searchParams, setSearchParams, navigate])
+  }, [effectiveSelectedId, selectedLetter, searchParams, setSearchParams, navigate])
 
   useEffect(() => {
     if (!headerBack) return
@@ -342,7 +340,7 @@ export function ClassesPage() {
                         if (window.confirm('Переместить класс в архив? Ученики и расписание сохранятся.')) {
                           archiveClassMutation.mutate(selectedClass.id, {
                             onSuccess: () => {
-                              if (selectedClassId === selectedClass.id) {
+                              if (effectiveSelectedId === selectedClass.id) {
                                 setSelectedClassId(null)
                                 setSelectedLetter(null)
                                 const nextParams = new URLSearchParams(searchParams)
@@ -384,7 +382,7 @@ export function ClassesPage() {
                 </button>
               </div>
 
-              {showJournalSubjects && (
+              {effectiveShowJournalSubjects && (
                 <StateWrapper
                   isLoading={classSubjectsQuery.isLoading}
                   isError={classSubjectsQuery.isError}

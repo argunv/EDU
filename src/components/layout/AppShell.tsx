@@ -2,7 +2,8 @@ import { LogOut, Moon, Sun } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom'
 
-import { HeaderBackProvider, type BackTarget } from '../../contexts/HeaderBackContext'
+import { HeaderBackProvider } from '../../contexts/HeaderBackProvider'
+import { type BackTarget } from '../../contexts/headerBack'
 import { useAuth } from '../../features/auth/useAuth'
 import { BottomNav } from './BottomNav'
 import { Toaster } from '../ui/sonner'
@@ -20,17 +21,26 @@ export function AppShell() {
   const { user, logout } = useAuth()
   const location = useLocation()
   const navigate = useNavigate()
+
   const [contextBack, setContextBack] = useState<BackTarget | null>(null)
+  const [backAnchorPath, setBackAnchorPath] = useState<string | null>(null)
+  const setBackTarget = useCallback((v: BackTarget | null) => {
+    setContextBack(v)
+    setBackAnchorPath(v ? window.location.pathname : null)
+  }, [])
+
   const pathBack = useMemo(() => pathBasedBack(location.pathname), [location.pathname])
-  const backTarget = contextBack ?? pathBack
+  const backTarget = useMemo(
+    () =>
+      (contextBack && backAnchorPath === location.pathname ? contextBack : null) ??
+      pathBack,
+    [contextBack, backAnchorPath, location.pathname, pathBack],
+  )
   const handleBackClick = useCallback(() => {
     if (!backTarget) return
     if (backTarget.type === 'href') navigate(backTarget.href)
     else backTarget.onBack()
   }, [backTarget, navigate])
-  useEffect(() => {
-    setContextBack(null)
-  }, [location.pathname])
   const [isDark, setIsDark] = useState(() => {
     if (typeof window === 'undefined') return false
     const stored = localStorage.getItem(THEME_STORAGE_KEY)
@@ -50,20 +60,6 @@ export function AppShell() {
     user?.role !== 'pending' &&
     user?.role !== 'rejected' &&
     !isTeacherLesson
-
-  useEffect(() => {
-    const storedTheme = localStorage.getItem(THEME_STORAGE_KEY)
-    if (storedTheme === 'dark') {
-      setIsDark(true)
-      return
-    }
-    if (storedTheme === 'light') {
-      setIsDark(false)
-      return
-    }
-    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
-    setIsDark(prefersDark)
-  }, [])
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', isDark)
@@ -148,7 +144,7 @@ export function AppShell() {
         </header>
       ) : null}
       <main className={`min-h-dvh ${showNav ? 'pb-20' : ''}`}>
-        <HeaderBackProvider setBackTarget={setContextBack}>
+        <HeaderBackProvider setBackTarget={setBackTarget}>
           <Outlet />
         </HeaderBackProvider>
       </main>

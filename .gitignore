@@ -16,3 +16,4 @@ coverage/
 *.ignore
 .cursor/
 .cursorignore
+*.log

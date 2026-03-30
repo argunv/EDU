@@ -4,6 +4,7 @@
 Source-of-truth для назначения учителя: teacher_id (FK на users).
 teacher_name сохраняется как человекочитаемый snapshot для UI и уведомлений.
 """
+
 import uuid
 from sqlalchemy import Column, String, Integer, Boolean, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID
@@ -16,9 +17,21 @@ class ScheduleSlot(Base):
     __tablename__ = "schedule_slots"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    class_id = Column(UUID(as_uuid=True), ForeignKey("classes.id", ondelete="CASCADE"), nullable=False)
-    subject_id = Column(UUID(as_uuid=True), ForeignKey("subjects.id", ondelete="CASCADE"), nullable=False)
-    teacher_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    class_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("classes.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    subject_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("subjects.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    teacher_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     day_label = Column(String(50), nullable=False)  # Понедельник, Вторник, ...
     lesson_number = Column(Integer, nullable=False)
     time = Column(String(10), nullable=False)  # 08:30

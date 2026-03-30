@@ -121,11 +121,13 @@ class PatchClassRequest(BaseModel):
 class AdminJournalStudent(BaseModel):
     id: str
     name: str
-    grades: list[int | str | None]  # 2,3,4,5,'Н',null — в том же порядке, что и dates
+    # 2,3,4,5,'Н',null — в том же порядке, что и dates
+    grades: list[int | str | None]
     absences: int
 
 
 class AdminJournalResponse(BaseModel):
     lesson_meta: dict  # title, last_updated
-    dates: list[str]  # ISO-даты (Пн–Пт) по расписанию, включая сегодня если урок в этот день
+    # ISO-даты (Пн–Пт) по расписанию, включая сегодня если урок в этот день
+    dates: list[str]
     students: list[AdminJournalStudent]

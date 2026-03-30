@@ -23,6 +23,7 @@ def test_rate_limit_key():
 
 def test_check_rate_limit_no_redis_fail_closed(monkeypatch):
     monkeypatch.setattr(settings, "rate_limit_fail_closed", True)
+    monkeypatch.setattr("app.services.rate_limit.get_redis", lambda: None)
     with pytest.raises(HTTPException) as exc:
         check_rate_limit("login", "127.0.0.1", "5/60")
     assert exc.value.status_code == 503
@@ -30,4 +31,5 @@ def test_check_rate_limit_no_redis_fail_closed(monkeypatch):
 
 def test_check_rate_limit_no_redis_allows_when_fail_open(monkeypatch):
     monkeypatch.setattr(settings, "rate_limit_fail_closed", False)
+    monkeypatch.setattr("app.services.rate_limit.get_redis", lambda: None)
     check_rate_limit("login", "127.0.0.1", "5/60")

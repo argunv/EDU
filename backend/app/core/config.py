@@ -2,7 +2,8 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    # Environment: "development" | "production". In production, secrets are validated at startup.
+    # Environment: "development" | "production". In production, secrets are
+    # validated at startup.
     environment: str = "development"
 
     # Database
@@ -27,14 +28,18 @@ class Settings(BaseSettings):
     smtp_user: str = ""
     smtp_password: str = ""
     smtp_from: str = "noreply@example.com"
-    # Базовый URL для ссылок в письмах (сброс пароля и т.д.). В production задайте домен (FRONTEND_URL).
+    # Базовый URL для ссылок в письмах (сброс пароля и т.д.). В production
+    # задайте домен (FRONTEND_URL).
     frontend_url: str = "http://localhost:5173"
 
     # CORS
-    cors_origins: list[str] = ["http://localhost:5173", "http://localhost:3000"]
+    cors_origins: list[str] = [
+        "http://localhost:5173",
+        "http://localhost:3000",
+    ]
 
     # Rate limit (requests per window)
-    rate_limit_login: str = "5/60"   # 5 per 60 seconds
+    rate_limit_login: str = "5/60"  # 5 per 60 seconds
     rate_limit_register: str = "3/60"
     rate_limit_forgot: str = "3/300"
     rate_limit_reset: str = "5/60"
@@ -50,16 +55,18 @@ settings = Settings()
 
 def validate_production_secrets() -> None:
     """Fail startup in production if secrets use defaults. Required for audit."""
-    if getattr(settings, "environment", "development").lower() != "production":
+    env = getattr(settings, "environment", "development")
+    if env.lower() != "production":
         return
-    if settings.jwt_secret == "change-me-in-production":
+    if settings.jwt_secret == "change-me-in-production":  # nosec B105
         raise ValueError(
             "JWT_SECRET must be set to a non-default value in production. "
             "Set ENVIRONMENT=production only with secure secrets."
         )
     if "postgres:postgres" in settings.database_url:
         raise ValueError(
-            "DATABASE_URL must not contain default credentials (e.g. postgres:postgres) in production."
+            "DATABASE_URL must not contain default credentials "
+            "(e.g. postgres:postgres) in production.",
         )
     if "guest:guest@" in settings.rabbitmq_url:
         raise ValueError("RABBITMQ_URL must not use guest credentials in production.")

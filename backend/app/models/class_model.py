@@ -8,7 +8,14 @@ from app.models.base import Base
 
 class Class(Base):
     __tablename__ = "classes"
-    __table_args__ = (UniqueConstraint("year_start", "grade", "letter", name="uq_classes_year_grade_letter"),)
+    __table_args__ = (
+        UniqueConstraint(
+            "year_start",
+            "grade",
+            "letter",
+            name="uq_classes_year_grade_letter",
+        ),
+    )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     year_start = Column(Integer, nullable=False)

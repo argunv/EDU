@@ -1,11 +1,11 @@
 from datetime import date, timedelta
 from uuid import UUID
 
-from fastapi import APIRouter, Query, Depends, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
-from app.deps import get_db, DbSession, TeacherUser
+from app.deps import DbSession, TeacherUser
 from app.models.lesson import Lesson, LessonAttendance
 from app.models.class_model import Class
 from app.models.subject import Subject
@@ -14,7 +14,11 @@ from app.models.grade import Grade
 from app.models.homework import Homework
 from app.models.role_profiles import TeacherAssignment
 from app.models.schedule import ScheduleSlot
-from app.services.relation_access import get_active_student_ids_for_class, get_teacher_class_ids, has_user_role
+from app.services.relation_access import (
+    get_active_student_ids_for_class,
+    get_teacher_class_ids,
+    has_user_role,
+)
 from app.schemas.teacher import (
     LessonResponse,
     LessonStudentResponse,
@@ -23,25 +27,49 @@ from app.schemas.teacher import (
     JournalSubjectOption,
     SaveGradeRequest,
 )
-
-router = APIRouter(prefix="/teacher", tags=["teacher"])
-
-# Соответствие weekday() (0=пн) и day_label в расписании
-_WEEKDAY_LABELS_EN = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
-_WEEKDAY_LABELS_RU = ("Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье")
-
 from app.services.journal_dates import (
     build_journal_dates,
     parse_journal_date_range,
     weekdays_from_slots,
 )
 
+router = APIRouter(prefix="/teacher", tags=["teacher"])
 
-def _schedule_weekdays_teacher(db, class_id: UUID, subject_id: UUID | None, teacher_name: str, teacher_id: UUID) -> set[int]:
+# Соответствие weekday() (0=пн) и day_label в расписании
+_WEEKDAY_LABELS_EN = (
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+    "sunday",
+)
+_WEEKDAY_LABELS_RU = (
+    "Понедельник",
+    "Вторник",
+    "Среда",
+    "Четверг",
+    "Пятница",
+    "Суббота",
+    "Воскресенье",
+)
+
+
+def _schedule_weekdays_teacher(
+    db,
+    class_id: UUID,
+    subject_id: UUID | None,
+    teacher_name: str,
+    teacher_id: UUID,
+) -> set[int]:
     """Дни недели (0–4), в которые у учителя по расписанию урок в классе по предмету."""
     q = db.query(ScheduleSlot).filter(
         ScheduleSlot.class_id == class_id,
-        or_(ScheduleSlot.is_cancelled.is_(False), ScheduleSlot.is_cancelled.is_(None)),
+        or_(
+            ScheduleSlot.is_cancelled.is_(False),
+            ScheduleSlot.is_cancelled.is_(None),
+        ),
     )
     q = q.filter(ScheduleSlot.teacher_id == teacher_id)
     if subject_id:
@@ -50,7 +78,9 @@ def _schedule_weekdays_teacher(db, class_id: UUID, subject_id: UUID | None, teac
     return weekdays_from_slots(slots)
 
 
-def _lesson_owned_by_teacher(db: Session, lesson: Lesson, teacher_name: str, teacher_id: UUID) -> bool:
+def _lesson_owned_by_teacher(
+    db: Session, lesson: Lesson, teacher_name: str, teacher_id: UUID
+) -> bool:
     """Security: verify lesson belongs to teacher via schedule. Prevents IDOR."""
     if not lesson:
         return False
@@ -58,22 +88,34 @@ def _lesson_owned_by_teacher(db: Session, lesson: Lesson, teacher_name: str, tea
         return True
     weekday = lesson.date.weekday()
     day_labels = (_WEEKDAY_LABELS_EN[weekday], _WEEKDAY_LABELS_RU[weekday])
-    slot = db.query(ScheduleSlot).filter(
-        ScheduleSlot.class_id == lesson.class_id,
-        ScheduleSlot.subject_id == lesson.subject_id,
-        ScheduleSlot.day_label.in_(day_labels),
-        ScheduleSlot.time == lesson.time,
-        ScheduleSlot.teacher_id == teacher_id,
-        or_(ScheduleSlot.is_cancelled.is_(False), ScheduleSlot.is_cancelled.is_(None)),
-    ).first()
+    slot = (
+        db.query(ScheduleSlot)
+        .filter(
+            ScheduleSlot.class_id == lesson.class_id,
+            ScheduleSlot.subject_id == lesson.subject_id,
+            ScheduleSlot.day_label.in_(day_labels),
+            ScheduleSlot.time == lesson.time,
+            ScheduleSlot.teacher_id == teacher_id,
+            or_(
+                ScheduleSlot.is_cancelled.is_(False),
+                ScheduleSlot.is_cancelled.is_(None),
+            ),
+        )
+        .first()
+    )
     if slot is not None:
         return True
-    # Backward-compatible fallback for lessons created without matching schedule slot.
-    assignment = db.query(TeacherAssignment).filter(
-        TeacherAssignment.teacher_user_id == teacher_id,
-        TeacherAssignment.class_id == lesson.class_id,
-        TeacherAssignment.subject_id == lesson.subject_id,
-    ).first()
+    # Backward-compatible fallback for lessons created without matching
+    # schedule slot.
+    assignment = (
+        db.query(TeacherAssignment)
+        .filter(
+            TeacherAssignment.teacher_user_id == teacher_id,
+            TeacherAssignment.class_id == lesson.class_id,
+            TeacherAssignment.subject_id == lesson.subject_id,
+        )
+        .first()
+    )
     return assignment is not None
 
 
@@ -97,20 +139,32 @@ def _get_or_create_teacher_lessons_from_schedule(
         return []
     weekday = target_date.weekday()
     day_labels = (_WEEKDAY_LABELS_EN[weekday], _WEEKDAY_LABELS_RU[weekday])
-    slots = db.query(ScheduleSlot).filter(
-        ScheduleSlot.class_id.in_(class_ids),
-        ScheduleSlot.day_label.in_(day_labels),
-        or_(ScheduleSlot.is_cancelled.is_(False), ScheduleSlot.is_cancelled.is_(None)),
-        ScheduleSlot.teacher_id == teacher_id,
-    ).order_by(ScheduleSlot.lesson_number.asc(), ScheduleSlot.time.asc()).all()
+    slots = (
+        db.query(ScheduleSlot)
+        .filter(
+            ScheduleSlot.class_id.in_(class_ids),
+            ScheduleSlot.day_label.in_(day_labels),
+            or_(
+                ScheduleSlot.is_cancelled.is_(False),
+                ScheduleSlot.is_cancelled.is_(None),
+            ),
+            ScheduleSlot.teacher_id == teacher_id,
+        )
+        .order_by(ScheduleSlot.lesson_number.asc(), ScheduleSlot.time.asc())
+        .all()
+    )
     lesson_with_slots: list[tuple[Lesson, ScheduleSlot]] = []
     for slot in slots:
-        lesson = db.query(Lesson).filter(
-            Lesson.class_id == slot.class_id,
-            Lesson.subject_id == slot.subject_id,
-            Lesson.date == target_date,
-            Lesson.time == slot.time,
-        ).first()
+        lesson = (
+            db.query(Lesson)
+            .filter(
+                Lesson.class_id == slot.class_id,
+                Lesson.subject_id == slot.subject_id,
+                Lesson.date == target_date,
+                Lesson.time == slot.time,
+            )
+            .first()
+        )
         if not lesson:
             lesson = Lesson(
                 class_id=slot.class_id,
@@ -147,16 +201,18 @@ def get_teacher_lessons(
     for le, _slot in lessons_with_slots:
         cls = db.query(Class).filter(Class.id == le.class_id).first()
         sub = db.query(Subject).filter(Subject.id == le.subject_id).first()
-        result.append(LessonResponse(
-            id=str(le.id),
-            subject=sub.name if sub else "",
-            class_id=str(le.class_id),
-            class_name=cls.name if cls else "",
-            time=le.time,
-            room=le.room,
-            topic=getattr(le, "topic", None) or None,
-            homework_text=getattr(le, "homework_text", None) or None,
-        ))
+        result.append(
+            LessonResponse(
+                id=str(le.id),
+                subject=sub.name if sub else "",
+                class_id=str(le.class_id),
+                class_name=cls.name if cls else "",
+                time=le.time,
+                room=le.room,
+                topic=getattr(le, "topic", None) or None,
+                homework_text=getattr(le, "homework_text", None) or None,
+            )
+        )
     return result
 
 
@@ -174,17 +230,30 @@ def get_lesson_students(
         raise HTTPException(status_code=403, detail="Доступ к этому уроку запрещён")
     # Students in this class
     student_ids = get_active_student_ids_for_class(db, lesson.class_id)
-    students = db.query(User).filter(User.id.in_(student_ids)).all() if student_ids else []
-    attendances = {a.student_id: a for a in db.query(LessonAttendance).filter(LessonAttendance.lesson_id == lesson_id).all()}
+    students = (
+        db.query(User).filter(User.id.in_(student_ids)).all() if student_ids else []
+    )
+    attendances = {
+        a.student_id: a
+        for a in db.query(LessonAttendance)
+        .filter(LessonAttendance.lesson_id == lesson_id)
+        .all()
+    }
     result = []
     for u in students:
         att = attendances.get(u.id)
-        result.append(LessonStudentResponse(
-            student_id=str(u.id),
-            name=u.name,
-            attendance=att.attendance if att else "present",
-            grade=int(att.grade) if att and att.grade and att.grade.isdigit() else None,
-        ))
+        result.append(
+            LessonStudentResponse(
+                student_id=str(u.id),
+                name=u.name,
+                attendance=att.attendance if att else "present",
+                grade=(
+                    int(att.grade)
+                    if att and att.grade and att.grade.isdigit()
+                    else None
+                ),
+            )
+        )
     return result
 
 
@@ -207,43 +276,57 @@ def submit_grades(
     if body.topic is not None:
         lesson.topic = body.topic if body.topic.strip() else None
     if body.homework_text is not None:
-        lesson.homework_text = body.homework_text if body.homework_text.strip() else None
+        lesson.homework_text = (
+            body.homework_text if body.homework_text.strip() else None
+        )
         if lesson.homework_text:
             due_date = lesson.date + timedelta(days=1)
-            existing = db.query(Homework).filter(
-                Homework.class_id == lesson.class_id,
-                Homework.subject_id == lesson.subject_id,
-                Homework.due_date == due_date,
-            ).first()
+            existing = (
+                db.query(Homework)
+                .filter(
+                    Homework.class_id == lesson.class_id,
+                    Homework.subject_id == lesson.subject_id,
+                    Homework.due_date == due_date,
+                )
+                .first()
+            )
             if existing:
                 existing.text = lesson.homework_text
             else:
-                db.add(Homework(
-                    class_id=lesson.class_id,
-                    subject_id=lesson.subject_id,
-                    due_date=due_date,
-                    text=lesson.homework_text,
-                ))
+                db.add(
+                    Homework(
+                        class_id=lesson.class_id,
+                        subject_id=lesson.subject_id,
+                        due_date=due_date,
+                        text=lesson.homework_text,
+                    )
+                )
     for entry in body.entries:
         try:
             sid = UUID(entry.student_id)
         except (ValueError, TypeError):
             continue
-        att = db.query(LessonAttendance).filter(
-            LessonAttendance.lesson_id == lesson_uuid,
-            LessonAttendance.student_id == sid,
-        ).first()
+        att = (
+            db.query(LessonAttendance)
+            .filter(
+                LessonAttendance.lesson_id == lesson_uuid,
+                LessonAttendance.student_id == sid,
+            )
+            .first()
+        )
         grade_val = str(entry.grade) if entry.grade is not None else None
         if att:
             att.attendance = entry.attendance
             att.grade = grade_val
         else:
-            db.add(LessonAttendance(
-                lesson_id=lesson.id,
-                student_id=sid,
-                attendance=entry.attendance,
-                grade=grade_val,
-            ))
+            db.add(
+                LessonAttendance(
+                    lesson_id=lesson.id,
+                    student_id=sid,
+                    attendance=entry.attendance,
+                    grade=grade_val,
+                )
+            )
     db.commit()
     return {"success": True}
 
@@ -252,22 +335,49 @@ def submit_grades(
 def get_teacher_journal(
     class_id: UUID | None = Query(None, alias="class_id"),
     subject_id: UUID | None = Query(None, alias="subject_id"),
-    from_date: str | None = Query(None, alias="from_date", description="Начало периода (ISO YYYY-MM-DD)"),
-    to_date: str | None = Query(None, alias="to_date", description="Конец периода (ISO YYYY-MM-DD)"),
+    from_date: str | None = Query(
+        None,
+        alias="from_date",
+        description="Начало периода (ISO YYYY-MM-DD)",
+    ),
+    to_date: str | None = Query(
+        None,
+        alias="to_date",
+        description="Конец периода (ISO YYYY-MM-DD)",
+    ),
     db: DbSession = None,
     current_user: TeacherUser = None,
 ):
     teacher_class_ids = get_teacher_class_ids(db, current_user.id)
     if not teacher_class_ids:
-        return JournalDataResponse(class_id="", class_name="", subject="", subject_id="", subjects=[], dates=[], students=[], grades={})
+        return JournalDataResponse(
+            class_id="",
+            class_name="",
+            subject="",
+            subject_id="",
+            subjects=[],
+            dates=[],
+            students=[],
+            grades={},
+        )
     # Только неархивные классы в выборе
     class_ids = [
-        c.id for c in db.query(Class)
-        .filter(Class.id.in_(teacher_class_ids), Class.archived == False)
+        c.id
+        for c in db.query(Class)
+        .filter(Class.id.in_(teacher_class_ids), Class.archived.is_(False))
         .all()
     ]
     if not class_ids:
-        return JournalDataResponse(class_id="", class_name="", subject="", subject_id="", subjects=[], dates=[], students=[], grades={})
+        return JournalDataResponse(
+            class_id="",
+            class_name="",
+            subject="",
+            subject_id="",
+            subjects=[],
+            dates=[],
+            students=[],
+            grades={},
+        )
     cid = class_id or class_ids[0]
     if cid not in class_ids:
         raise HTTPException(status_code=403, detail="Доступ к этому классу запрещён")
@@ -275,10 +385,14 @@ def get_teacher_journal(
     if not cls:
         raise HTTPException(status_code=404, detail="Класс не найден")
     # Only slots where this teacher teaches
-    slots = db.query(ScheduleSlot).filter(
-        ScheduleSlot.class_id == cid,
-        ScheduleSlot.teacher_id == current_user.id,
-    ).all()
+    slots = (
+        db.query(ScheduleSlot)
+        .filter(
+            ScheduleSlot.class_id == cid,
+            ScheduleSlot.teacher_id == current_user.id,
+        )
+        .all()
+    )
     seen_subject_ids = set()
     subject_options = []
     for s in slots:
@@ -286,32 +400,54 @@ def get_teacher_journal(
             seen_subject_ids.add(s.subject_id)
             subj = db.query(Subject).filter(Subject.id == s.subject_id).first()
             if subj:
-                subject_options.append(JournalSubjectOption(id=str(subj.id), name=subj.name))
+                subject_options.append(
+                    JournalSubjectOption(id=str(subj.id), name=subj.name)
+                )
     subject_options.sort(key=lambda x: x.name)
     allowed_subject_ids = {UUID(opt.id) for opt in subject_options}
     effective_subject_id = subject_id
     if subject_id is not None and subject_id not in allowed_subject_ids:
-        raise HTTPException(status_code=403, detail="Доступ к этому предмету в журнале запрещён")
+        raise HTTPException(
+            status_code=403,
+            detail="Доступ к этому предмету в журнале запрещён",
+        )
     if not effective_subject_id and subject_options:
         effective_subject_id = UUID(subject_options[0].id)
-    sub = db.query(Subject).filter(Subject.id == effective_subject_id).first() if effective_subject_id else None
+    sub = (
+        db.query(Subject).filter(Subject.id == effective_subject_id).first()
+        if effective_subject_id
+        else None
+    )
     if effective_subject_id and sub is None:
         raise HTTPException(status_code=404, detail="Предмет не найден")
-    subject_name = sub.name if sub else (subject_options[0].name if subject_options else "Журнал")
-    subject_id_str = str(effective_subject_id) if effective_subject_id else (subject_options[0].id if subject_options else "")
+    subject_name = (
+        sub.name if sub else (subject_options[0].name if subject_options else "Журнал")
+    )
+    subject_id_str = (
+        str(effective_subject_id)
+        if effective_subject_id
+        else (subject_options[0].id if subject_options else "")
+    )
     student_ids = get_active_student_ids_for_class(db, cid)
-    students = db.query(User).filter(User.id.in_(student_ids)).all() if student_ids else []
+    students = (
+        db.query(User).filter(User.id.in_(student_ids)).all() if student_ids else []
+    )
 
     # Диапазон дат: из query-параметров или по умолчанию 90 дней до сегодня
     start_d, end_d = parse_journal_date_range(from_date, to_date)
     # Столбцы журнала — только дни недели (Пн–Пт), в которые по расписанию урок
-    weekdays = _schedule_weekdays_teacher(db, cid, effective_subject_id, current_user.name, current_user.id)
+    weekdays = _schedule_weekdays_teacher(
+        db, cid, effective_subject_id, current_user.name, current_user.id
+    )
     if weekdays:
         dates = build_journal_dates(weekdays, start_date=start_d, end_date=end_d)
     else:
-        dates = build_journal_dates({0, 1, 2, 3, 4}, start_date=start_d, end_date=end_d)  # все будни
+        dates = build_journal_dates(
+            {0, 1, 2, 3, 4}, start_date=start_d, end_date=end_d
+        )  # все будни
 
-    # One bulk query for all grades (student_id, date) in range, then build grades dict in memory
+    # One bulk query for all grades (student_id, date) in range, then build
+    # grades dict in memory
     grade_by_student_date: dict[tuple[str, str], str | None] = {}
     student_ids = [u.id for u in students]
     if dates and students:
@@ -327,8 +463,7 @@ def get_teacher_journal(
     grades = {}
     for u in students:
         grades[str(u.id)] = {
-            d_iso: grade_by_student_date.get((str(u.id), d_iso))
-            for d_iso in dates
+            d_iso: grade_by_student_date.get((str(u.id), d_iso)) for d_iso in dates
         }
     return JournalDataResponse(
         class_id=str(cid),
@@ -372,13 +507,20 @@ def save_teacher_grade(
     class_student_ids = set(get_active_student_ids_for_class(db, body_class_id))
     if sid not in class_student_ids:
         raise HTTPException(status_code=403, detail="Ученик не из этого класса")
-    allowed = db.query(ScheduleSlot).filter(
-        ScheduleSlot.class_id == body_class_id,
-        ScheduleSlot.subject_id == sub_id,
-        ScheduleSlot.teacher_id == current_user.id,
-    ).first()
+    allowed = (
+        db.query(ScheduleSlot)
+        .filter(
+            ScheduleSlot.class_id == body_class_id,
+            ScheduleSlot.subject_id == sub_id,
+            ScheduleSlot.teacher_id == current_user.id,
+        )
+        .first()
+    )
     if not allowed:
-        raise HTTPException(status_code=403, detail="Нет права выставлять оценки по этому предмету в этом классе")
+        raise HTTPException(
+            status_code=403,
+            detail="Нет права выставлять оценки по этому предмету в этом классе",
+        )
     q = db.query(Grade).filter(
         Grade.student_id == sid,
         Grade.date == d,
@@ -393,11 +535,13 @@ def save_teacher_grade(
         if g.subject_id is None:
             g.subject_id = sub_id
     else:
-        db.add(Grade(
-            student_id=sid,
-            date=d,
-            value=val,
-            subject_id=sub_id,
-        ))
+        db.add(
+            Grade(
+                student_id=sid,
+                date=d,
+                value=val,
+                subject_id=sub_id,
+            )
+        )
     db.commit()
     return {"success": True}

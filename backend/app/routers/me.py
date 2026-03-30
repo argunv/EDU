@@ -2,12 +2,12 @@ import logging
 from datetime import date, timedelta
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Query, Depends, HTTPException
+from fastapi import APIRouter, HTTPException, Query
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
-from app.deps import get_db, DbSession, CurrentUser
+from app.deps import CurrentUser, DbSession
 from app.models.user import User
-from app.models.role_profiles import ClassEnrollment
 from app.models.class_model import Class
 from app.models.schedule import ScheduleSlot
 from app.models.subject import Subject
@@ -19,7 +19,11 @@ from app.schemas.me import (
     HomeworkItemResponse,
     SubjectProgressResponse,
 )
-from app.services.relation_access import get_active_enrollment, get_parent_child_ids, has_user_role
+from app.services.relation_access import (
+    get_active_enrollment,
+    get_parent_child_ids,
+    has_user_role,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/me", tags=["me"])
@@ -36,20 +40,30 @@ def _resolve_child_id(current_user: User, child_id: str | None, db: Session) -> 
 
     if not has_user_role(db, current_user.id, "parent"):
         cid = str(uuid4())[:12]
-        logger.warning("me resolve_child status=403 correlation_id=%s role=%s", cid, current_user.role)
+        logger.warning(
+            "me resolve_child status=403 correlation_id=%s role=%s",
+            cid,
+            current_user.role,
+        )
         raise HTTPException(status_code=403, detail="Роль не поддерживается")
 
     if not child_id:
         child_ids = get_parent_child_ids(db, current_user.id)
         if not child_ids:
             cid = str(uuid4())[:12]
-            logger.warning("me resolve_child status=404 correlation_id=%s detail=no_children", cid)
+            logger.warning(
+                "me resolve_child status=404 correlation_id=%s detail=no_children",
+                cid,
+            )
             raise HTTPException(status_code=404, detail="Нет привязанных детей")
         first_child_id = child_ids[0]
         u = db.query(User).filter(User.id == first_child_id).first()
         if not u or not has_user_role(db, u.id, "student"):
             cid = str(uuid4())[:12]
-            logger.warning("me resolve_child status=404 correlation_id=%s detail=child_user_not_found", cid)
+            logger.warning(
+                "me resolve_child status=404 correlation_id=%s detail=child_user_not_found",
+                cid,
+            )
             raise HTTPException(status_code=404, detail="Ребёнок не найден")
         return first_child_id
 
@@ -57,7 +71,10 @@ def _resolve_child_id(current_user: User, child_id: str | None, db: Session) -> 
         cid_uuid = UUID(child_id)
     except (ValueError, TypeError):
         cid = str(uuid4())[:12]
-        logger.warning("me resolve_child status=400 correlation_id=%s detail=invalid_child_id", cid)
+        logger.warning(
+            "me resolve_child status=400 correlation_id=%s detail=invalid_child_id",
+            cid,
+        )
         raise HTTPException(status_code=400, detail="Некорректный child_id")
 
     allowed_ids = set(get_parent_child_ids(db, current_user.id))
@@ -65,16 +82,25 @@ def _resolve_child_id(current_user: User, child_id: str | None, db: Session) -> 
         u = db.query(User).filter(User.id == cid_uuid).first()
         if not u:
             cid = str(uuid4())[:12]
-            logger.warning("me resolve_child status=404 correlation_id=%s detail=child_user_not_found", cid)
+            logger.warning(
+                "me resolve_child status=404 correlation_id=%s detail=child_user_not_found",
+                cid,
+            )
             raise HTTPException(status_code=404, detail="Ребёнок не найден")
         cid = str(uuid4())[:12]
-        logger.warning("me resolve_child status=403 correlation_id=%s detail=child_not_linked", cid)
+        logger.warning(
+            "me resolve_child status=403 correlation_id=%s detail=child_not_linked",
+            cid,
+        )
         raise HTTPException(status_code=403, detail="Нет доступа к этому ребёнку")
 
     u = db.query(User).filter(User.id == cid_uuid).first()
     if not u or not has_user_role(db, u.id, "student"):
         cid = str(uuid4())[:12]
-        logger.warning("me resolve_child status=404 correlation_id=%s detail=child_user_not_student", cid)
+        logger.warning(
+            "me resolve_child status=404 correlation_id=%s detail=child_user_not_student",
+            cid,
+        )
         raise HTTPException(status_code=404, detail="Ребёнок не найден")
 
     return cid_uuid
@@ -86,11 +112,13 @@ def get_my_children(db: DbSession = None, current_user: CurrentUser = None):
         enrollment = get_active_enrollment(db, current_user.id)
         class_id = enrollment.class_id if enrollment else None
         cls = db.query(Class).filter(Class.id == class_id).first() if class_id else None
-        return [ChildResponse(
-            id=str(current_user.id),
-            name=current_user.name,
-            class_name=cls.name if cls else "",
-        )]
+        return [
+            ChildResponse(
+                id=str(current_user.id),
+                name=current_user.name,
+                class_name=cls.name if cls else "",
+            )
+        ]
     if has_user_role(db, current_user.id, "parent"):
         child_ids = get_parent_child_ids(db, current_user.id)
         out = []
@@ -99,19 +127,34 @@ def get_my_children(db: DbSession = None, current_user: CurrentUser = None):
             if u:
                 enrollment = get_active_enrollment(db, u.id)
                 class_id = enrollment.class_id if enrollment else None
-                cls = db.query(Class).filter(Class.id == class_id).first() if class_id else None
-                out.append(ChildResponse(id=str(u.id), name=u.name, class_name=cls.name if cls else ""))
+                cls = (
+                    db.query(Class).filter(Class.id == class_id).first()
+                    if class_id
+                    else None
+                )
+                out.append(
+                    ChildResponse(
+                        id=str(u.id),
+                        name=u.name,
+                        class_name=cls.name if cls else "",
+                    )
+                )
         return out
     return []
 
 
 # Дни недели для вычисления даты по day_label (Пн=0 … Пт=4)
 _DAY_LABEL_TO_WEEKDAY = {
-    "понедельник": 0, "monday": 0,
-    "вторник": 1, "tuesday": 1,
-    "среда": 2, "wednesday": 2,
-    "четверг": 3, "thursday": 3,
-    "пятница": 4, "friday": 4,
+    "понедельник": 0,
+    "monday": 0,
+    "вторник": 1,
+    "tuesday": 1,
+    "среда": 2,
+    "wednesday": 2,
+    "четверг": 3,
+    "thursday": 3,
+    "пятница": 4,
+    "friday": 4,
 }
 
 
@@ -129,17 +172,31 @@ def get_my_schedule(
     student_class_id = enrollment.class_id if enrollment else None
     if not u or not has_user_role(db, u.id, "student") or not student_class_id:
         cid_log = str(uuid4())[:12]
-        logger.warning("me schedule status=404 correlation_id=%s detail=user_not_student", cid_log)
-        raise HTTPException(status_code=404, detail="Пользователь не найден или не ученик")
+        logger.warning(
+            "me schedule status=404 correlation_id=%s detail=user_not_student",
+            cid_log,
+        )
+        raise HTTPException(
+            status_code=404, detail="Пользователь не найден или не ученик"
+        )
     cls = db.query(Class).filter(Class.id == student_class_id).first()
-    shift = (cls.shift if cls and cls.shift else "morning")
-    slots = db.query(ScheduleSlot).filter(
-        ScheduleSlot.class_id == student_class_id,
-        ScheduleSlot.shift == shift,
-        ScheduleSlot.is_cancelled != True,
-    ).order_by(ScheduleSlot.lesson_number).all()
+    shift = cls.shift if cls and cls.shift else "morning"
+    slots = (
+        db.query(ScheduleSlot)
+        .filter(
+            ScheduleSlot.class_id == student_class_id,
+            ScheduleSlot.shift == shift,
+            or_(
+                ScheduleSlot.is_cancelled.is_(False),
+                ScheduleSlot.is_cancelled.is_(None),
+            ),
+        )
+        .order_by(ScheduleSlot.lesson_number)
+        .all()
+    )
 
-    # Для режима недели с указанной датой понедельника — подтягиваем оценки за соответствующие дни
+    # Для режима недели с указанной датой понедельника — подтягиваем оценки за
+    # соответствующие дни
     week_start: date | None = None
     if view == "week" and week_start_iso:
         try:
@@ -150,8 +207,7 @@ def get_my_schedule(
     if week_start and slots:
         week_end = week_start + timedelta(days=4)
         grades_q = (
-            db.query(Grade.subject_id, Grade.date, Grade.value)
-            .filter(
+            db.query(Grade.subject_id, Grade.date, Grade.value).filter(
                 Grade.student_id == cid,
                 Grade.date >= week_start,
                 Grade.date <= week_end,
@@ -173,17 +229,19 @@ def get_my_schedule(
         grade_val: str | None = None
         if slot_date and s.subject_id:
             grade_val = grades_by_key.get((s.subject_id, slot_date))
-        result.append(ScheduleItemResponse(
-            id=str(s.id),
-            day_label=s.day_label,
-            lesson_number=s.lesson_number,
-            time=s.time,
-            subject=sub.name if sub else "",
-            teacher_name=s.teacher_name,
-            room=s.room,
-            subject_id=str(s.subject_id) if s.subject_id else None,
-            grade=grade_val,
-        ))
+        result.append(
+            ScheduleItemResponse(
+                id=str(s.id),
+                day_label=s.day_label,
+                lesson_number=s.lesson_number,
+                time=s.time,
+                subject=sub.name if sub else "",
+                teacher_name=s.teacher_name,
+                room=s.room,
+                subject_id=str(s.subject_id) if s.subject_id else None,
+                grade=grade_val,
+            )
+        )
     return result
 
 
@@ -200,8 +258,13 @@ def get_my_homework(
     student_class_id = enrollment.class_id if enrollment else None
     if not u or not has_user_role(db, u.id, "student") or not student_class_id:
         cid_log = str(uuid4())[:12]
-        logger.warning("me homework status=404 correlation_id=%s detail=user_not_student", cid_log)
-        raise HTTPException(status_code=404, detail="Пользователь не найден или не ученик")
+        logger.warning(
+            "me homework status=404 correlation_id=%s detail=user_not_student",
+            cid_log,
+        )
+        raise HTTPException(
+            status_code=404, detail="Пользователь не найден или не ученик"
+        )
     today = date.today()
     if range_filter == "today":
         start = today
@@ -212,21 +275,28 @@ def get_my_homework(
     else:
         start = today
         end = today + timedelta(days=7)
-    items = db.query(Homework).filter(
-        Homework.class_id == student_class_id,
-        Homework.due_date >= start,
-        Homework.due_date <= end,
-    ).all()
+    items = (
+        db.query(Homework)
+        .filter(
+            Homework.class_id == student_class_id,
+            Homework.due_date >= start,
+            Homework.due_date <= end,
+        )
+        .all()
+    )
     from app.models.subject import Subject
+
     result = []
     for h in items:
         sub = db.query(Subject).filter(Subject.id == h.subject_id).first()
-        result.append(HomeworkItemResponse(
-            id=str(h.id),
-            due_date_label=h.due_date.strftime("%d.%m.%Y"),
-            subject=sub.name if sub else "",
-            text=h.text,
-        ))
+        result.append(
+            HomeworkItemResponse(
+                id=str(h.id),
+                due_date_label=h.due_date.strftime("%d.%m.%Y"),
+                subject=sub.name if sub else "",
+                text=h.text,
+            )
+        )
     return result
 
 
@@ -248,24 +318,35 @@ _YEAR_MAX = 2100
 @router.get("/progress", response_model=list[SubjectProgressResponse])
 def get_my_progress(
     child_id: str | None = Query(None, alias="child_id"),
-    year_start: int | None = Query(None, description="Первый год учебного года (например 2024)"),
+    year_start: int | None = Query(
+        None, description="Первый год учебного года (например 2024)"
+    ),
     semester: int | None = Query(None, description="Семестр: 1 или 2"),
     db: DbSession = None,
     current_user: CurrentUser = None,
 ):
     if semester is None or semester not in (1, 2):
         cid_log = str(uuid4())[:12]
-        logger.warning("me progress status=400 correlation_id=%s detail=invalid_semester", cid_log)
+        logger.warning(
+            "me progress status=400 correlation_id=%s detail=invalid_semester",
+            cid_log,
+        )
         raise HTTPException(status_code=400, detail="semester должен быть 1 или 2")
     semester = int(semester)
     if year_start is None:
         cid_log = str(uuid4())[:12]
-        logger.warning("me progress status=400 correlation_id=%s detail=year_start_required", cid_log)
+        logger.warning(
+            "me progress status=400 correlation_id=%s detail=year_start_required",
+            cid_log,
+        )
         raise HTTPException(status_code=400, detail="year_start обязателен")
     year_start = int(year_start)
     if not (_YEAR_MIN <= year_start <= _YEAR_MAX):
         cid_log = str(uuid4())[:12]
-        logger.warning("me progress status=400 correlation_id=%s detail=year_start_out_of_range", cid_log)
+        logger.warning(
+            "me progress status=400 correlation_id=%s detail=year_start_out_of_range",
+            cid_log,
+        )
         raise HTTPException(
             status_code=400,
             detail=f"year_start должен быть от {_YEAR_MIN} до {_YEAR_MAX}",
@@ -279,7 +360,13 @@ def get_my_progress(
     for g in grades:
         sub_id = str(g.subject_id) if g.subject_id else "unknown"
         if sub_id not in by_subject:
-            by_subject[sub_id] = {"grades": [], "grade_dates": [], "absences": 0, "subject_name": "", "teacher_name": ""}
+            by_subject[sub_id] = {
+                "grades": [],
+                "grade_dates": [],
+                "absences": 0,
+                "subject_name": "",
+                "teacher_name": "",
+            }
         if g.value == "Н":
             by_subject[sub_id]["absences"] += 1
         else:
@@ -287,12 +374,18 @@ def get_my_progress(
             by_subject[sub_id]["grade_dates"].append(g.date.isoformat())
     result = []
     for sid, data in by_subject.items():
-        s = db.query(Subject).filter(Subject.id == sid).first() if sid != "unknown" else None
-        result.append(SubjectProgressResponse(
-            subject=s.name if s else sid,
-            teacher_name=data["teacher_name"] or "",
-            grades=data["grades"],
-            grade_dates=data["grade_dates"],
-            absences_count=data["absences"],
-        ))
+        s = (
+            db.query(Subject).filter(Subject.id == sid).first()
+            if sid != "unknown"
+            else None
+        )
+        result.append(
+            SubjectProgressResponse(
+                subject=s.name if s else sid,
+                teacher_name=data["teacher_name"] or "",
+                grades=data["grades"],
+                grade_dates=data["grade_dates"],
+                absences_count=data["absences"],
+            )
+        )
     return result
