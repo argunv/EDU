@@ -1,5 +1,5 @@
 # ========== API (backend) ==========
-FROM python:3.12-slim AS api
+FROM python:3.14-slim AS api
 WORKDIR /app
 RUN pip install poetry
 COPY backend/pyproject.toml backend/poetry.lock ./
