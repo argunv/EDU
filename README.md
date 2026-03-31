@@ -342,25 +342,11 @@ npx vitest run
 
 ## Линтинг
 
-### Backend
-
 ```bash
 task check
 ```
 
-или только backend вручную:
-
-```bash
-cd backend
-flake8 app
-bandit -r app
-```
-
-### Frontend
-
-```bash
-npm run lint
-```
+Скрипт гоняет **ESLint** (фронт), **flake8** и **bandit** (бэк). Сборку и тесты смотри `npm run build`, `npm run test`, `task test` и раздел **Тесты** ниже.
 
 ---
 

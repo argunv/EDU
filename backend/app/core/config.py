@@ -136,5 +136,6 @@ def validate_production_secrets() -> None:
     if "localhost" in (urlparse(settings.frontend_url).hostname or ""):
         raise ValueError(
             "FRONTEND_URL must not use localhost in production. "
-            "For local Docker set ENVIRONMENT=development, or set FRONTEND_URL to your public https URL."
+            "For local Docker, set ENVIRONMENT=development, "
+            "or set FRONTEND_URL to your public https URL."
         )

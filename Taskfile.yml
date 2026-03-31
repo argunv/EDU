@@ -5,11 +5,10 @@ vars:
 
 tasks:
   check:
-    desc: Unified local quality gate (frontend + backend)
+    desc: Lint frontend (ESLint) and backend (flake8, bandit)
     cmd: |
       npm run lint
-      npm run build
-      cd backend && poetry run flake8 app && poetry run bandit -r app && poetry run pytest -v --cov=app --cov-report=term-missing --cov-fail-under=80
+      cd backend && poetry run flake8 app && poetry run bandit -r app
 
   migrate:
     desc: Run Alembic migrations via Docker (starts postgres if needed, then runs automigrate)
