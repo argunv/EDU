@@ -12,6 +12,26 @@ def test_settings_rejects_invalid_app_timezone():
         Settings(app_timezone="NotA/Valid_Timezone_Name_XXX")
 
 
+def test_settings_rejects_docker_service_as_frontend_url_hostname():
+    with pytest.raises(ValidationError, match="FRONTEND_URL|Docker"):
+        Settings(frontend_url="https://web:5173")
+
+
+def test_settings_rejects_frontend_url_without_scheme():
+    with pytest.raises(ValidationError, match="FRONTEND_URL|http"):
+        Settings(frontend_url="localhost:80")
+
+
+def test_reset_password_public_link_trims_slash(monkeypatch):
+    monkeypatch.setattr(config.settings, "frontend_url", "https://example.org/")
+    from app.core.config import reset_password_public_link
+
+    assert (
+        reset_password_public_link("tok")
+        == "https://example.org/auth/reset-password?token=tok"
+    )
+
+
 def test_validate_production_secrets_skips_non_production(monkeypatch):
     monkeypatch.setattr(config.settings, "environment", "development")
     validate_production_secrets()  # не бросает

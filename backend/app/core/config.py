@@ -1,7 +1,24 @@
+from urllib.parse import urlparse
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Hostnames Docker Compose / внутренних сервисов — не использовать в FRONTEND_URL
+# (письма и редиректы должны вести на URL из браузера пользователя).
+_DOCKER_INTERNAL_FRONTEND_HOSTS = frozenset(
+    {
+        "web",
+        "api",
+        "nginx",
+        "frontend",
+        "backend",
+        "notifier",
+        "postgres",
+        "redis",
+        "rabbitmq",
+    }
+)
 
 
 class Settings(BaseSettings):
@@ -39,8 +56,8 @@ class Settings(BaseSettings):
     smtp_user: str = ""
     smtp_password: str = ""
     smtp_from: str = "noreply@example.com"
-    # Базовый URL для ссылок в письмах (сброс пароля и т.д.). В production
-    # задайте домен (FRONTEND_URL).
+    # Внешний URL фронтенда в браузере пользователя (FRONTEND_URL).
+    # Используется в письмах (сброс пароля), не смешивать с VITE_API_URL.
     frontend_url: str = "http://localhost:5173"
 
     # CORS
@@ -67,8 +84,36 @@ class Settings(BaseSettings):
             ) from e
         return v
 
+    @field_validator("frontend_url")
+    @classmethod
+    def frontend_url_must_be_public_browser_origin(cls, v: str) -> str:
+        raw = v.strip()
+        if not raw:
+            raise ValueError("FRONTEND_URL must not be empty.")
+        parsed = urlparse(raw)
+        scheme = (parsed.scheme or "").lower()
+        if scheme not in ("http", "https"):
+            raise ValueError(
+                "FRONTEND_URL must be an absolute URL with http:// or https:// "
+                "(the frontend address users open in the browser, not a Docker service name)."
+            )
+        host = (parsed.hostname or "").lower()
+        if host in _DOCKER_INTERNAL_FRONTEND_HOSTS:
+            raise ValueError(
+                f"FRONTEND_URL hostname {host!r} is a Docker Compose service name. "
+                "Use a browser URL, e.g. http://localhost (nginx on host port 80), "
+                "http://localhost:5173 (Vite on host), or https://your.domain."
+            )
+        return raw
+
 
 settings = Settings()
+
+
+def reset_password_public_link(token: str) -> str:
+    """Ссылка «сброс пароля» для email; база — settings.frontend_url (без лишнего /)."""
+    base = settings.frontend_url.rstrip("/")
+    return f"{base}/auth/reset-password?token={token}"
 
 
 def validate_production_secrets() -> None:
@@ -88,5 +133,8 @@ def validate_production_secrets() -> None:
         )
     if "guest:guest@" in settings.rabbitmq_url:
         raise ValueError("RABBITMQ_URL must not use guest credentials in production.")
-    if settings.frontend_url.startswith("http://localhost"):
-        raise ValueError("FRONTEND_URL must be a real domain in production.")
+    if "localhost" in (urlparse(settings.frontend_url).hostname or ""):
+        raise ValueError(
+            "FRONTEND_URL must not use localhost in production. "
+            "For local Docker set ENVIRONMENT=development, or set FRONTEND_URL to your public https URL."
+        )

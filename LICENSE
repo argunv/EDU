@@ -2,60 +2,40 @@ Copyright (c) 2026 Vladislav Argun
 
 All rights reserved.
 
-This software and all source code contained in this repository are the exclusive
-property of the author. No part of this software may be used, copied, modified,
-merged, published, distributed, sublicensed, reverse engineered, sold, or
-incorporated into other software, in whole or in part, without prior written
-permission from the author.
+This software and the source code contained in this repository are protected by
+copyright law and remain the exclusive property of the author.
+
+No part of this software may be used, copied, modified, merged, published,
+distributed, sublicensed, sold, or incorporated into other software, in whole
+or in part, without prior written permission from the author.
 
 Permission to use this software may be granted only through a separate written
 license agreement signed by the author. Any use of the software without such
 permission is strictly prohibited.
 
-The software is provided "AS IS", without warranty of any kind, express or
-implied, including but not limited to the warranties of merchantability,
-fitness for a particular purpose, and noninfringement. In no event shall the
-author be liable for any claim, damages, or other liability, whether in an
-action of contract, tort, or otherwise, arising from, out of, or in connection
-with the software or the use or other dealings in the software.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHOR BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER IN AN
+ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM, OUT OF, OR IN CONNECTION
+WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 -------------------------------------------------------------------------------
 Third-Party Dependencies Notice
 -------------------------------------------------------------------------------
 
-This software uses the following third-party dependencies, which are available
-under their respective open-source licenses:
+This project uses third-party open-source software and dependencies that are
+licensed under their respective terms.
 
-Frontend:
-- React (MIT License) - https://react.dev/
-- Vite (MIT License) - https://vitejs.dev/
-- TypeScript (Apache License 2.0) - https://www.typescriptlang.org/
-- Tailwind CSS (MIT License) - https://tailwindcss.com/
-- React Router (MIT License) - https://reactrouter.com/
-- TanStack Query (MIT License) - https://tanstack.com/query/
-- Axios (MIT License) - https://axios-http.com/
-- Radix UI (MIT License) - https://www.radix-ui.com/
-- Lucide React (ISC License) - https://lucide.dev/
-- Lucide Icons (ISC License) - https://github.com/lucide-icons/lucide
+All third-party components remain subject to their own licenses. Nothing in
+this license grants any rights to third-party software, nor does it modify or
+replace the terms of any applicable third-party license.
 
-Backend:
-- FastAPI (MIT License) - https://fastapi.tiangolo.com/
-- Uvicorn (BSD License) - https://www.uvicorn.org/
-- Pydantic (MIT License) - https://docs.pydantic.dev/
-- pydantic-settings (MIT License) - https://github.com/pydantic/pydantic-settings
-- SQLAlchemy (MIT License) - https://www.sqlalchemy.org/
-- asyncpg (Apache License 2.0) - https://github.com/MagicStack/asyncpg
-- psycopg2-binary (LGPL or PostgreSQL License) - https://www.psycopg.org/
-- Alembic (MIT License) - https://alembic.sqlalchemy.org/
-- python-jose (MIT License) - https://github.com/mpdavis/python-jose
-- bcrypt (Apache License 2.0) - https://github.com/pyca/bcrypt/
-- Redis (BSD License) - https://redis.io/
-- Pika (BSD License) - https://pika.readthedocs.io/
+For current dependency information, see:
+- package.json
+- package-lock.json
+- pyproject.toml
+- poetry.lock
 
-These dependencies are dynamically linked and not modified. Users may replace
-or relink these libraries in accordance with the terms of their respective
-licenses. The use of these dependencies does not grant users any rights to
-this software beyond those explicitly stated in this license.
-
-For more information about the licenses of these dependencies, please refer
-to their respective documentation and license files.
+For full details, refer to the license files and documentation of the
+respective third-party projects.

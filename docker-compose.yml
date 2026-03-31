@@ -1,5 +1,4 @@
 services:
-  # Креды только из .env (без дефолтов): без .env контейнер не стартует — нет слабых кредов в коде.
   postgres:
     image: postgres:16-alpine
     environment:
@@ -26,10 +25,11 @@ services:
       start_period: 5s
     restart: unless-stopped
 
-  # Брокер сообщений — только внутренняя сеть. Порты НЕ пробрасываем (best practice).
-  # Для доступа к RabbitMQ Management (15672) в dev используйте docker-compose.override.yml.
   rabbitmq:
     image: rabbitmq:3-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:?RABBITMQ_USER is required}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD is required}
     healthcheck:
       test: ["CMD-SHELL", "nc -z 127.0.0.1 5672"]
       interval: 10s
@@ -43,7 +43,6 @@ services:
       context: .
       dockerfile: Dockerfile
       target: web
-    # порты не пробрасываем, nginx обращается по имени сервиса
     restart: unless-stopped
 
   automigrate:
@@ -107,11 +106,17 @@ services:
       rabbitmq:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
-      interval: 15s
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)",
+        ]
+      interval: 10s
       timeout: 5s
-      retries: 3
-      start_period: 20s
+      retries: 6
+      start_period: 60s
     restart: unless-stopped
 
   notifier:
@@ -139,11 +144,10 @@ services:
       start_period: 10s
     restart: unless-stopped
 
-  # Единственная точка входа наружу: nginx на порту 11223. API и статика проксируются внутри.
   nginx:
     image: nginx:alpine
     ports:
-      - "11223:80"
+      - "${NGINX_HOST_PORT:-80}:80"
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:

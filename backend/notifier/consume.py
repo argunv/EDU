@@ -12,7 +12,7 @@ from email.mime.multipart import MIMEMultipart
 import pika
 
 # Import after app is on PYTHONPATH (e.g. run as python -m notifier.consume from backend root)
-from app.core.config import settings
+from app.core.config import reset_password_public_link, settings
 
 logging.basicConfig(
     level=logging.INFO,
@@ -28,11 +28,10 @@ SMTP_PORT = settings.smtp_port
 SMTP_USER = settings.smtp_user
 SMTP_PASSWORD = settings.smtp_password
 SMTP_FROM = settings.smtp_from
-FRONTEND_URL = settings.frontend_url
 
 
 def send_reset_email(to_email: str, token: str) -> None:
-    link = f"{FRONTEND_URL}/auth/reset-password?token={token}"
+    link = reset_password_public_link(token)
     msg = MIMEMultipart("alternative")
     msg["Subject"] = "Сброс пароля"
     msg["From"] = SMTP_FROM
