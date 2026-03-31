@@ -16,7 +16,8 @@ class ScheduleItemResponse(BaseModel):
     teacher_name: str
     room: str | None = None
     subject_id: str | None = None  # для привязки оценки к предмету
-    grade: str | None = None  # оценка за этот предмет в этот день (2, 3, 4, 5, Н), если есть
+    # оценка за этот предмет в этот день (2, 3, 4, 5, Н), если есть
+    grade: str | None = None
 
 
 class HomeworkItemResponse(BaseModel):

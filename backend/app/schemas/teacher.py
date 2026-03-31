@@ -43,10 +43,12 @@ class JournalDataResponse(BaseModel):
     class_name: str
     subject: str
     subject_id: str = ""  # for filtering and saving grades
-    subjects: list[JournalSubjectOption] = []  # list of subjects for class (for dropdown)
+    # list of subjects for class (for dropdown)
+    subjects: list[JournalSubjectOption] = []
     dates: list[str]
     students: list[dict]  # id, name
-    grades: dict[str, dict[str, int | str | None]]  # student_id -> date -> grade
+    # student_id -> date -> grade
+    grades: dict[str, dict[str, int | str | None]]
 
 
 class SaveGradeRequest(BaseModel):

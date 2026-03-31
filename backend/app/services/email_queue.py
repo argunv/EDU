@@ -1,4 +1,5 @@
 """Publish email tasks to RabbitMQ for notifier service."""
+
 import json
 import logging
 from typing import Any
@@ -40,6 +41,7 @@ def get_channel():
             _close_channel()
     try:
         import pika
+
         params = pika.URLParameters(settings.rabbitmq_url)
         _connection = pika.BlockingConnection(params)
         _channel = _connection.channel()
@@ -55,10 +57,14 @@ def publish_email_task(task: dict[str, Any], correlation_id: str | None = None) 
     """Publish a dict task to the notifier queue. Returns True if published."""
     ch = get_channel()
     if not ch:
-        logger.warning("email_queue: cannot publish task (no channel); task type=%s", task.get("type"))
+        logger.warning(
+            "email_queue: cannot publish task (no channel); task type=%s",
+            task.get("type"),
+        )
         return False
     try:
         import pika
+
         body = json.dumps(task).encode("utf-8")
         props = pika.BasicProperties(
             delivery_mode=2,
@@ -73,6 +79,10 @@ def publish_email_task(task: dict[str, Any], correlation_id: str | None = None) 
         )
         return True
     except Exception as e:
-        logger.warning("email_queue: publish failed: %s; task type=%s", e, task.get("type"))
+        logger.warning(
+            "email_queue: publish failed: %s; task type=%s",
+            e,
+            task.get("type"),
+        )
         _close_channel()
         return False

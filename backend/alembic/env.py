@@ -8,8 +8,9 @@ from alembic import context
 from app.models.base import Base
 from app.models import (
     User, RefreshToken, PasswordResetToken,
-    Class, Subject, ClassSubject, Student,
-    TeacherClass, TeacherSubject, ParentChild,
+    Class, Subject, ClassSubject,
+    UserRole, StudentProfile, TeacherProfile, ParentProfile,
+    ClassEnrollment, TeacherAssignment, ParentStudentLink,
     ScheduleSlot, Grade, Lesson, LessonAttendance,
     Homework, SchoolSettings,
 )

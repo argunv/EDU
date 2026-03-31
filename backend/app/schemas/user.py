@@ -1,6 +1,6 @@
 from datetime import datetime
-from uuid import UUID
-from pydantic import BaseModel, Field
+
+from pydantic import BaseModel
 
 
 class UserBase(BaseModel):
@@ -14,8 +14,10 @@ class UserResponse(UserBase):
     name: str
     role: str
     email: str | None = None
-    class_name: str | None = None  # для ученика: название класса (например "1A")
-    parent_names: list[str] | None = None  # для ученика: ФИО привязанных родителей
+    # для ученика: название класса (например "1A")
+    class_name: str | None = None
+    # для ученика: ФИО привязанных родителей
+    parent_names: list[str] | None = None
 
     class Config:
         from_attributes = True
@@ -35,16 +37,35 @@ class UserResponse(UserBase):
         class_name = None
         parent_names = None
         if getattr(user, "role", None) == "student":
-            if getattr(user, "class_id", None):
+            from app.models.role_profiles import (
+                ClassEnrollment,
+                ParentStudentLink,
+            )
+
+            enrollment = (
+                db.query(ClassEnrollment)
+                .filter(
+                    ClassEnrollment.student_user_id == user.id,
+                    ClassEnrollment.end_date.is_(None),
+                )
+                .first()
+            )
+            class_id = enrollment.class_id if enrollment else None
+            if class_id:
                 from app.models.class_model import Class
-                cl = db.query(Class).filter(Class.id == user.class_id).first()
+
+                cl = db.query(Class).filter(Class.id == class_id).first()
                 if cl:
                     class_name = cl.name
-            from app.models.parent import ParentChild
             from app.models.user import User as UserModel
-            links = db.query(ParentChild).filter(ParentChild.child_id == user.id).all()
+
+            links = (
+                db.query(ParentStudentLink)
+                .filter(ParentStudentLink.student_user_id == user.id)
+                .all()
+            )
             if links:
-                parent_ids = [l.parent_id for l in links]
+                parent_ids = [link.parent_user_id for link in links]
                 parents = db.query(UserModel).filter(UserModel.id.in_(parent_ids)).all()
                 parent_names = [p.name for p in parents]
         return cls(
@@ -68,7 +89,15 @@ class AdminUserResponse(UserResponse):
         from_attributes = True
 
     @classmethod
-    def from_orm_user(cls, user, created_at: datetime, class_id=None, child_ids=None, class_ids=None, subject_ids=None):
+    def from_orm_user(
+        cls,
+        user,
+        created_at: datetime,
+        class_id=None,
+        child_ids=None,
+        class_ids=None,
+        subject_ids=None,
+    ):
         return cls(
             id=str(user.id),
             name=user.name,

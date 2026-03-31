@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from app.models.user import User
 from app.models.class_model import Class
+from app.models.role_profiles import UserRole
 from app.services.auth import hash_password
 
 
@@ -33,6 +34,8 @@ def test_register_duplicate_email(client: TestClient, db):
         role="pending",
     )
     db.add(user)
+    db.commit()
+    db.add(UserRole(user_id=user.id, role="rejected"))
     db.commit()
     res = client.post(
         "/auth/register",
@@ -95,6 +98,8 @@ def test_login_rejected_user(client: TestClient, db):
         role="rejected",
     )
     db.add(user)
+    db.commit()
+    db.add(UserRole(user_id=user.id, role="rejected"))
     db.commit()
     res = client.post(
         "/auth/login",

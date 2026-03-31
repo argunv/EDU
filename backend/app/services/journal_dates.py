@@ -2,6 +2,7 @@
 Общая логика журнала: дни недели по расписанию, диапазон дат, построение списка дат.
 Используется в admin и teacher роутерах для единообразия правил и отсутствия дублирования.
 """
+
 from datetime import date, timedelta
 from typing import Iterable
 
@@ -39,7 +40,7 @@ def weekdays_from_day_labels(day_labels: Iterable[str]) -> set[int]:
 def weekdays_from_slots(slots: Iterable[object]) -> set[int]:
     """По итератору слотов с атрибутом day_label возвращает set weekday (0–4)."""
     labels = (getattr(s, "day_label", None) for s in slots)
-    return weekdays_from_day_labels(l for l in labels if l is not None)
+    return weekdays_from_day_labels(lbl for lbl in labels if lbl is not None)
 
 
 def parse_journal_date_range(
@@ -68,7 +69,9 @@ def parse_journal_date_range(
             detail="Некорректный формат даты (ожидается ISO: YYYY-MM-DD)",
         )
     if end < start:
-        raise HTTPException(status_code=400, detail="to_date не может быть раньше from_date")
+        raise HTTPException(
+            status_code=400, detail="to_date не может быть раньше from_date"
+        )
     if (end - start).days >= MAX_JOURNAL_DAYS:
         raise HTTPException(
             status_code=400,
@@ -91,7 +94,11 @@ def build_journal_dates(
     if not weekdays:
         return []
     today = date.today()
-    start = start_date if start_date is not None else (today - timedelta(days=from_days_ago))
+    start = (
+        start_date
+        if start_date is not None
+        else (today - timedelta(days=from_days_ago))
+    )
     end = end_date if end_date is not None else today
     out: list[str] = []
     d = start

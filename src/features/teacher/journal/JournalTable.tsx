@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { JournalAverageCell } from './JournalAverageCell'
 import { JournalCell } from './JournalCell'
@@ -132,7 +132,7 @@ export function JournalTable({
     }, {})
   }, [data.dates, data.students, grades])
 
-  const updateScrollState = () => {
+  const updateScrollState = useCallback(() => {
     const container = scrollRef.current
     if (!container) return
     const sl = container.scrollLeft
@@ -145,7 +145,7 @@ export function JournalTable({
       leftEdgeFiredRef.current = true
       onReachLeftEdge()
     }
-  }
+  }, [isLoadingMore, onReachLeftEdge])
 
   useEffect(() => {
     updateScrollState()
@@ -277,7 +277,16 @@ export function JournalTable({
     return () => {
       window.removeEventListener('keydown', handleKeyDown)
     }
-  }, [activeCell, readOnly, data.students, data.dates, grades, hoveredRowId, hoveredColIndex])
+  }, [
+    activeCell,
+    data.dates,
+    data.students,
+    grades,
+    hoveredColIndex,
+    hoveredRowId,
+    lastEditedCell,
+    readOnly,
+  ])
 
   const handleOpen = (studentId: string, date: string) => {
     if (readOnly) return
@@ -291,7 +300,7 @@ export function JournalTable({
     setDraftValue(current)
   }
 
-  const handleSave = async () => {
+  const handleSave = useCallback(async () => {
     if (readOnly || !activeCell) return
     const valueToSave = draftValueRef.current
     // Моки: сохраняем локально в UI-стейте таблицы.
@@ -310,9 +319,9 @@ export function JournalTable({
       setLastEditedCell(activeCell)
       setActiveCell(null)
     }
-  }
+  }, [activeCell, onSaveGrade, readOnly])
 
-  const handleSaveAndMove = async (nextCell: { studentId: string; date: string }) => {
+  const handleSaveAndMove = useCallback(async (nextCell: { studentId: string; date: string }) => {
     if (readOnly || !activeCell) return
     const valueToSave = draftValueRef.current
     setGrades((prev) => ({
@@ -333,7 +342,7 @@ export function JournalTable({
       setDraftValue(nextValue)
       setActiveCell(nextCell)
     }
-  }
+  }, [activeCell, grades, onSaveGrade, readOnly])
 
   const scrollByAmount = (direction: -1 | 1) => {
     const container = scrollRef.current

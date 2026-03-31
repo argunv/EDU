@@ -1,3 +1,4 @@
+from app.schemas.user import UserResponse
 from pydantic import BaseModel, EmailStr, Field
 
 
@@ -30,5 +31,4 @@ class OkResponse(BaseModel):
     ok: bool = True
 
 
-from app.schemas.user import UserResponse
 TokenResponse.model_rebuild()

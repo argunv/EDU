@@ -182,6 +182,7 @@ export async function saveAdminScheduleChanges(changes: AdminScheduleChange[]): 
           shift: c.slot.shift,
           subject_id: c.slot.subjectId,
           subject_name: c.slot.subjectName,
+          teacher_id: c.slot.teacherId,
           teacher_name: c.slot.teacherName,
           room: c.slot.room,
           note: c.slot.note,

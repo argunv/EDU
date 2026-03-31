@@ -1,4 +1,5 @@
 import axios, { type AxiosInstance, type InternalAxiosRequestConfig } from 'axios'
+import { z } from 'zod'
 import type { User } from '../types/user'
 
 // В prod и при dev с proxy используйте /api (один origin). Иначе — полный URL бэкенда.
@@ -38,6 +39,22 @@ api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
 let refreshing = false
 let queue: Array<{ resolve: (value: unknown) => void; reject: (reason?: unknown) => void }> = []
 
+const rawUserSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  role: z.enum(['teacher', 'student', 'parent', 'admin', 'pending', 'rejected']),
+  email: z.string().optional(),
+  created_at: z.string().optional(),
+  class_name: z.string().nullable().optional().transform((v) => v ?? undefined),
+  parent_names: z.array(z.string()).nullable().optional().transform((v) => v ?? undefined),
+})
+
+const refreshSchema = z.object({
+  access_token: z.string().optional(),
+  accessToken: z.string().optional(),
+  user: rawUserSchema.optional(),
+})
+
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
@@ -57,10 +74,28 @@ api.interceptors.response.use(
           {},
           { withCredentials: true }
         )
-        const accessToken = data.access_token ?? data.accessToken
-        const user = data.user
-        if (setToken && accessToken) setToken(accessToken)
-        if (setUser && user) setUser(user)
+        const parsed = refreshSchema.safeParse(data)
+        if (!parsed.success) {
+          throw new Error('Invalid refresh response format')
+        }
+        const raw = parsed.data.access_token ?? parsed.data.accessToken
+        const accessToken =
+          typeof raw === 'string' && raw.trim() !== '' ? raw.trim() : null
+        if (!accessToken) {
+          throw new Error('Refresh response missing access token')
+        }
+        const user = parsed.data.user
+        setToken?.(accessToken)
+        if (setUser && user) {
+          setUser({
+            id: user.id,
+            name: user.name,
+            role: user.role,
+            ...(user.email ? { email: user.email } : {}),
+            ...(user.class_name !== undefined && { className: user.class_name }),
+            ...(user.parent_names !== undefined && { parentNames: user.parent_names }),
+          })
+        }
         queue.forEach((q) => q.resolve(undefined))
         queue = []
         originalRequest.headers.Authorization = `Bearer ${accessToken}`
@@ -89,8 +124,11 @@ export function mapUserResponse(res: { access_token?: string; accessToken?: stri
   user: User
 } {
   const token = res.access_token ?? res.accessToken ?? ''
-  const raw = res.user
-  if (!raw) return { accessToken: token, user: raw as unknown as User }
+  const parsed = rawUserSchema.safeParse(res.user)
+  if (!parsed.success) {
+    throw new Error('Invalid user payload in auth response')
+  }
+  const raw = parsed.data
   const user: User = {
     id: raw.id,
     name: raw.name,

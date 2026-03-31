@@ -1,12 +1,16 @@
-from uuid import UUID
+from fastapi import APIRouter, HTTPException, Query, status
 
-from fastapi import APIRouter, Query, Depends, HTTPException, status
-
-from app.deps import get_db, DbSession, CurrentUser
+from app.deps import CurrentUser, DbSession
 from app.models.user import User
 from app.models.class_model import Class
-from app.models.teacher import TeacherClass
+from app.models.role_profiles import ClassEnrollment
 from app.schemas.classes import StudentOptionResponse
+from app.services.relation_access import (
+    get_active_enrollment,
+    get_teacher_class_ids,
+    get_user_roles,
+    has_user_role,
+)
 
 router = APIRouter(tags=["students"])
 
@@ -17,21 +21,24 @@ def list_students(
     db: DbSession = None,
     current_user: CurrentUser = None,
 ):
-    # Security: restrict to admin (full list) or teacher (own classes only); audit requirement for PII access.
-    if current_user.role not in ("admin", "teacher"):
+    # Security: restrict to admin (full list) or teacher (own classes only);
+    # audit requirement for PII access.
+    roles = get_user_roles(db, current_user.id)
+    if not roles.intersection({"admin", "teacher"}):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Недостаточно прав для просмотра списка учеников",
         )
-    q = db.query(User).filter(User.role == "student")
-    if current_user.role == "teacher":
-        class_ids = [
-            t.class_id
-            for t in db.query(TeacherClass).filter(TeacherClass.teacher_id == current_user.id).all()
-        ]
+    student_ids_query = db.query(ClassEnrollment.student_user_id).distinct()
+    if has_user_role(db, current_user.id, "teacher"):
+        class_ids = get_teacher_class_ids(db, current_user.id)
         if not class_ids:
             return []
-        q = q.filter(User.class_id.in_(class_ids))
+        student_ids_query = student_ids_query.filter(
+            ClassEnrollment.class_id.in_(class_ids),
+            ClassEnrollment.end_date.is_(None),
+        )
+    q = db.query(User).filter(User.id.in_(student_ids_query))
     if search and search.strip():
         term = f"%{search.strip().lower()}%"
         q = q.filter(User.name.ilike(term))
@@ -39,8 +46,12 @@ def list_students(
     result = []
     for u in users:
         class_name = ""
-        if u.class_id:
-            c = db.query(Class).filter(Class.id == u.class_id).first()
+        enrollment = get_active_enrollment(db, u.id)
+        class_id = enrollment.class_id if enrollment else None
+        if class_id:
+            c = db.query(Class).filter(Class.id == class_id).first()
             class_name = c.name if c else ""
-        result.append(StudentOptionResponse(id=str(u.id), name=u.name, class_name=class_name))
+        result.append(
+            StudentOptionResponse(id=str(u.id), name=u.name, class_name=class_name)
+        )
     return result

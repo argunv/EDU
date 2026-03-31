@@ -8,7 +8,7 @@ import { StateWrapper } from '../../components/shared/StateWrapper'
 import { useAuth } from '../auth/useAuth'
 import type { SubjectProgress } from '../../types/progress'
 import { getAverageFromGrades } from '../../lib/progressAverage'
-import { useHeaderBack } from '../../contexts/HeaderBackContext'
+import { useHeaderBack } from '../../contexts/useHeaderBack'
 
 function getInitials(name: string | undefined | null): string {
   if (!name) return '?'

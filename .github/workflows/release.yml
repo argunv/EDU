@@ -1,0 +1,26 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.12.0
+      - name: Generate changelog
+        run: |
+          echo "## Changes" > RELEASE_NOTES.md
+          git log --pretty=format:"- %s (%h)" "$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo '')"..HEAD >> RELEASE_NOTES.md
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: RELEASE_NOTES.md

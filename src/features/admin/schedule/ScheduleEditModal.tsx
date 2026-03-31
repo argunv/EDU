@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
 
@@ -28,8 +28,24 @@ export type ScheduleEditModalProps = {
   findTeacherConflict: (teacherName: string, cell: ActiveCell) => string | null
 }
 
-export function ScheduleEditModal({
-  open,
+function scheduleEditFormKey(
+  cell: ActiveCell,
+  slot: AdminScheduleSlot | null,
+  lockedClassId?: string,
+) {
+  return [
+    cell.dayLabel,
+    cell.lessonNumber,
+    lockedClassId ?? '',
+    slot?.classId ?? '',
+    slot?.subjectId ?? '',
+    slot?.teacherName ?? '',
+    slot?.note ?? '',
+    slot?.isCancelled ? '1' : '0',
+  ].join('|')
+}
+
+function ScheduleEditModalForm({
   onClose,
   onSave,
   onClear,
@@ -41,26 +57,27 @@ export function ScheduleEditModal({
   currentShift,
   editable,
   findTeacherConflict,
-}: ScheduleEditModalProps) {
-  const [classId, setClassId] = useState('')
-  const [subjectId, setSubjectId] = useState('')
-  const [teacherName, setTeacherName] = useState('')
-  const [note, setNote] = useState('')
-  const [showNote, setShowNote] = useState(false)
-  const [isCancelled, setIsCancelled] = useState(false)
+}: Omit<ScheduleEditModalProps, 'open' | 'cell'> & { cell: ActiveCell }) {
+  const [classId, setClassId] = useState(
+    () => lockedClassId ?? slot?.classId ?? classes[0]?.id ?? '',
+  )
+  const [subjectId, setSubjectId] = useState(() => slot?.subjectId ?? '')
+  const [teacherName, setTeacherName] = useState(() => slot?.teacherName ?? '')
+  const [note, setNote] = useState(() => slot?.note ?? '')
+  const [showNote, setShowNote] = useState(() => Boolean(slot?.note))
+  const [isCancelled, setIsCancelled] = useState(() => Boolean(slot?.isCancelled))
   const [subjectSearch, setSubjectSearch] = useState('')
   const [showFieldErrors, setShowFieldErrors] = useState(false)
-  const classChangeRef = useRef(false)
 
   const selectedClass = classes.find((item) => item.id === classId)
 
   const subjectsQuery = useQuery({
     queryKey: ['admin', 'subjects', classId],
     queryFn: () => getAdminClassSubjects(classId),
-    enabled: Boolean(classId) && open,
+    enabled: Boolean(classId),
   })
 
-  const subjects = subjectsQuery.data ?? []
+  const subjects = useMemo(() => subjectsQuery.data ?? [], [subjectsQuery.data])
   const filteredSubjects =
     subjects.length > 10
       ? subjects.filter((item) =>
@@ -68,73 +85,59 @@ export function ScheduleEditModal({
         )
       : subjects
 
+  const resolvedSubjectId = useMemo(() => {
+    if (subjects.length === 0) return ''
+    if (!subjectId) return subjects[0]?.id ?? ''
+    if (!subjects.some((s) => s.id === subjectId)) return subjects[0]?.id ?? ''
+    return subjectId
+  }, [subjects, subjectId])
+
   const subjectOptions =
-    subjectId && filteredSubjects.every((item) => item.id !== subjectId)
-      ? [...filteredSubjects, ...subjects.filter((item) => item.id === subjectId)]
+    resolvedSubjectId && filteredSubjects.every((item) => item.id !== resolvedSubjectId)
+      ? [...filteredSubjects, ...subjects.filter((item) => item.id === resolvedSubjectId)]
       : filteredSubjects
 
-  const selectedSubject = subjects.find((item) => item.id === subjectId)
-  const teacherOptions = selectedSubject?.teachers ?? []
+  const selectedSubject = subjects.find((item) => item.id === resolvedSubjectId)
+  const teacherOptions = useMemo(
+    () => selectedSubject?.teachers ?? [],
+    [selectedSubject],
+  )
+
+  const resolvedTeacherName = useMemo(() => {
+    if (teacherOptions.length === 0) return ''
+    if (!teacherName) return teacherOptions[0] ?? ''
+    if (!teacherOptions.includes(teacherName)) return teacherOptions[0] ?? ''
+    return teacherName
+  }, [teacherOptions, teacherName])
 
   const busyTeachersQuery = useQuery({
-    queryKey: ['admin', 'schedule', 'busy-teachers', currentShift, cell?.dayLabel, cell?.lessonNumber, classId],
+    queryKey: [
+      'admin',
+      'schedule',
+      'busy-teachers',
+      currentShift,
+      cell?.dayLabel,
+      cell?.lessonNumber,
+      classId,
+    ],
     queryFn: () =>
       getAdminScheduleBusyTeachers(currentShift, cell!.dayLabel, cell!.lessonNumber, classId),
-    enabled: Boolean(open && cell && classId),
+    enabled: Boolean(cell && classId),
   })
   const busyTeachers = busyTeachersQuery.data ?? []
 
-  useEffect(() => {
-    if (!open || !cell) return
-    setClassId(lockedClassId ?? slot?.classId ?? classes[0]?.id ?? '')
-    setSubjectId(slot?.subjectId ?? '')
-    setTeacherName(slot?.teacherName ?? '')
-    setNote(slot?.note ?? '')
-    setIsCancelled(Boolean(slot?.isCancelled))
-    setSubjectSearch('')
-    setShowNote(Boolean(slot?.note))
-    setShowFieldErrors(false)
-    classChangeRef.current = false
-  }, [open, slot, classes, cell, lockedClassId])
-
-  useEffect(() => {
-    if (!open) return
-    if (!classChangeRef.current) {
-      classChangeRef.current = true
-      return
-    }
-    setSubjectId('')
-    setTeacherName('')
-    setSubjectSearch('')
-  }, [classId, open])
-
-  useEffect(() => {
-    if (subjects.length === 0) return
-    if (!subjectId) {
-      setSubjectId(subjects[0]?.id ?? '')
-    }
-  }, [subjects, subjectId])
-
-  useEffect(() => {
-    if (teacherOptions.length === 0) return
-    if (!teacherName) {
-      setTeacherName(teacherOptions[0] ?? '')
-    } else if (!teacherOptions.includes(teacherName)) {
-      setTeacherName(teacherOptions[0] ?? '')
-    }
-  }, [teacherOptions, teacherName])
-
-  if (!open || !cell) return null
-
-  const conflictSameClass = teacherName ? findTeacherConflict(teacherName, cell) : null
-  const busyEntry = teacherName
-    ? busyTeachers.find((b) => b.teacher_name === teacherName)
+  const conflictSameClass = resolvedTeacherName
+    ? findTeacherConflict(resolvedTeacherName, cell)
+    : null
+  const busyEntry = resolvedTeacherName
+    ? busyTeachers.find((b) => b.teacher_name === resolvedTeacherName)
     : null
   const conflictOtherClass = busyEntry
     ? `Преподаватель уже ведёт урок в классе ${busyEntry.class_name} в это время.`
     : null
   const conflictWarning = conflictSameClass ?? conflictOtherClass ?? null
-  const isValid = Boolean(classId && subjectId && teacherName) && !conflictWarning
+  const isValid =
+    Boolean(classId && resolvedSubjectId && resolvedTeacherName) && !conflictWarning
 
   const handleSubmit = () => {
     if (!isValid || !selectedClass || !selectedSubject) {
@@ -150,9 +153,9 @@ export function ScheduleEditModal({
       classId,
       className: selectedClass.name,
       shift: currentShift,
-      subjectId,
+      subjectId: resolvedSubjectId,
       subjectName: selectedSubject.name,
-      teacherName,
+      teacherName: resolvedTeacherName,
       note: note.trim() || undefined,
       isCancelled,
     })
@@ -196,6 +199,9 @@ export function ScheduleEditModal({
               value={classId}
               onChange={(event) => {
                 setClassId(event.target.value)
+                setSubjectId('')
+                setTeacherName('')
+                setSubjectSearch('')
                 setShowFieldErrors(false)
               }}
               disabled={!editable || classLocked}
@@ -226,14 +232,16 @@ export function ScheduleEditModal({
               />
             ) : null}
             <select
-              value={subjectId}
+              value={resolvedSubjectId}
               onChange={(event) => {
                 setSubjectId(event.target.value)
                 setShowFieldErrors(false)
               }}
               disabled={!editable || subjectsQuery.isLoading}
               className={`mt-2 h-11 w-full rounded-lg border bg-white px-3 text-sm font-semibold text-slate-700 ${
-                showFieldErrors && !subjectId ? 'border-red-500 ring-2 ring-red-200' : 'border-slate-200'
+                showFieldErrors && !resolvedSubjectId
+                  ? 'border-red-500 ring-2 ring-red-200'
+                  : 'border-slate-200'
               }`}
             >
               {subjectsQuery.isLoading ? (
@@ -253,14 +261,16 @@ export function ScheduleEditModal({
           <div>
             <label className="text-sm font-semibold text-slate-700">Преподаватель</label>
             <select
-              value={teacherName}
+              value={resolvedTeacherName}
               onChange={(event) => {
                 setTeacherName(event.target.value)
                 setShowFieldErrors(false)
               }}
               disabled={!editable || teacherOptions.length === 0}
               className={`mt-1 h-11 w-full rounded-lg border bg-white px-3 text-sm font-semibold text-slate-700 ${
-                showFieldErrors && !teacherName ? 'border-red-500 ring-2 ring-red-200' : 'border-slate-200'
+                showFieldErrors && !resolvedTeacherName
+                  ? 'border-red-500 ring-2 ring-red-200'
+                  : 'border-slate-200'
               }`}
             >
               {teacherOptions.length > 0 ? (
@@ -363,5 +373,19 @@ export function ScheduleEditModal({
         </div>
       </div>
     </div>
+  )
+}
+
+export function ScheduleEditModal(props: ScheduleEditModalProps) {
+  const { open, cell, slot, lockedClassId, ...rest } = props
+  if (!open || !cell) return null
+  return (
+    <ScheduleEditModalForm
+      key={scheduleEditFormKey(cell, slot, lockedClassId)}
+      cell={cell}
+      slot={slot}
+      lockedClassId={lockedClassId}
+      {...rest}
+    />
   )
 }

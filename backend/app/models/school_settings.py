@@ -10,4 +10,5 @@ class SchoolSettings(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     is_two_shift = Column(Boolean, default=True)
-    class_shift_rules = Column(JSONB, nullable=True)  # {"class-1a": "morning", ...}
+    # {"class-1a": "morning", ...}
+    class_shift_rules = Column(JSONB, nullable=True)

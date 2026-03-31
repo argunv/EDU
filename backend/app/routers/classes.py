@@ -1,8 +1,8 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, HTTPException
 
-from app.deps import get_db, DbSession, CurrentUser
+from app.deps import CurrentUser, DbSession
 from app.models.class_model import Class
 from app.schemas.classes import ClassResponse
 
@@ -12,10 +12,7 @@ router = APIRouter(tags=["classes"])
 @router.get("/classes", response_model=list[ClassResponse])
 def list_classes(db: DbSession = None, current_user: CurrentUser = None):
     classes = (
-        db.query(Class)
-        .filter(Class.archived == False)
-        .order_by(Class.name)
-        .all()
+        db.query(Class).filter(Class.archived.is_(False)).order_by(Class.name).all()
     )
     return [
         ClassResponse(

@@ -4,6 +4,12 @@ vars:
   COMPOSE_DEV: "-f docker-compose.yml -f docker-compose.override.yml"
 
 tasks:
+  check:
+    desc: Lint frontend (ESLint) and backend (flake8, bandit)
+    cmd: |
+      npm run lint
+      cd backend && poetry run flake8 app && poetry run bandit -r app
+
   migrate:
     desc: Run Alembic migrations via Docker (starts postgres if needed, then runs automigrate)
     cmd: docker compose up -d postgres && docker compose run --rm automigrate
@@ -15,36 +21,6 @@ tasks:
       docker compose up -d postgres
       until docker compose exec -T postgres pg_isready -U "{{.POSTGRES_USER}}" 2>/dev/null; do sleep 2; done
       docker compose run --rm test
-
-  seed:
-    desc: Insert dev/test data into DB (Docker). Без конфликтов при повторном запуске. Требует, чтобы postgres был запущен, а миграции применены.
-    cmd: docker compose exec -T postgres psql -U "{{.POSTGRES_USER}}" -d "{{.POSTGRES_DB}}" < backend/scripts/seed.sql
-
-  api:
-    desc: Run FastAPI server
-    dir: backend
-    cmd: uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 --log-config log_config.json
-
-  frontend:
-    desc: Run frontend dev server (Vite)
-    cmd: npm run dev
-
-  test-backend:
-    desc: Run backend tests локально (без Docker; без PostgreSQL — только unit-тесты)
-    dir: backend
-    cmd: poetry run pytest -v
-
-  test-backend-cov:
-    desc: Run backend tests с покрытием локально (нужен PostgreSQL и БД abh_edu_test)
-    dir: backend
-    cmd: poetry run pytest -v --cov=app --cov-report=term-missing --cov-fail-under=80
-    env:
-      DATABASE_URL: postgresql+psycopg2://postgres:postgres@localhost:5432/abh_edu_test
-
-  lint-backend:
-    desc: Run flake8 and bandit
-    dir: backend
-    cmd: poetry run flake8 app && poetry run bandit -r app
 
   up:
     desc: Start all services with docker-compose
@@ -58,34 +34,21 @@ tasks:
     desc: Build all services
     cmd: docker compose build
 
-  # Dev compose (с монтированием кода и --reload)
-  dev-down:
-    desc: Stop all services (dev compose)
-    cmd: docker compose {{.COMPOSE_DEV}} down -v
-
-  dev-build:
-    desc: Build all services (dev compose)
-    cmd: docker compose {{.COMPOSE_DEV}} build
-
-  dev-up:
-    desc: Start all services (dev compose)
-    cmd: docker compose {{.COMPOSE_DEV}} up -d
-
-  dev-seed:
-    desc: Seed DB (dev compose; postgres должен быть запущен)
-    cmd: docker compose {{.COMPOSE_DEV}} exec -T postgres psql -U "{{.POSTGRES_USER}}" -d "{{.POSTGRES_DB}}" < backend/scripts/seed_dev.sql
-
   dev:
-    desc: Полный сброс и подъём в dev-режиме — clear, down -v, build, up, migrate, seed
+    desc: Полный сброс и подъём в dev-режиме — clear, down -v, build, up, seed, migrate (backfill-safe)
     cmd: |
       clear || true
       docker compose {{.COMPOSE_DEV}} down -v
-      docker compose {{.COMPOSE_DEV}} build || docker compose {{.COMPOSE_DEV}} build
-      docker compose {{.COMPOSE_DEV}} up -d
+      docker compose {{.COMPOSE_DEV}} build
+      # Важно: не стартуем `automigrate` автоматически, иначе оно выполнит backfill до seed.
+      docker compose {{.COMPOSE_DEV}} up -d postgres redis rabbitmq api web nginx notifier frontend-watch
       sleep 10
-      docker compose {{.COMPOSE_DEV}} run --rm automigrate
+      # Seed наполняет legacy-таблицы. Backfill (008) читает их, поэтому сначала докатываемся только до 007.
+      docker compose {{.COMPOSE_DEV}} run --rm automigrate sh -c "pip install alembic && sleep 5 && alembic upgrade 007"
       docker compose {{.COMPOSE_DEV}} exec -T postgres psql -U "{{.POSTGRES_USER}}" -d "{{.POSTGRES_DB}}" < backend/scripts/seed_dev.sql
-  
+      # После seed докатываемся до head: выполняется 008 backfill и 010 integrity hardening.
+      docker compose {{.COMPOSE_DEV}} run --rm automigrate
+
   dbdown:
     desc: Remove all data from database using truncate
     cmd: psql "postgresql://{{.POSTGRES_USER}}:{{.POSTGRES_PASSWORD}}@localhost:5432/{{.POSTGRES_DB}}" -c "DO \$\$ DECLARE r RECORD; BEGIN FOR r IN (SELECT tablename FROM pg_tables WHERE schemaname = current_schema()) LOOP EXECUTE 'TRUNCATE TABLE ' || quote_ident(r.tablename) || ' RESTART IDENTITY CASCADE;'; END LOOP; END \$\$;"
