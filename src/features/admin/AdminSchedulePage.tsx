@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useNavigate, useSearchParams } from 'react-router-dom'
@@ -49,6 +49,8 @@ export function AdminSchedulePage() {
   const [originalByKey, setOriginalByKey] = useState<Record<SlotKey, AdminScheduleSlot | null>>({})
   const [currentByKey, setCurrentByKey] = useState<Record<SlotKey, AdminScheduleSlot | null>>({})
   const [dirtyKeys, setDirtyKeys] = useState<Record<SlotKey, boolean>>({})
+  const dirtyKeysRef = useRef(dirtyKeys)
+  dirtyKeysRef.current = dirtyKeys
   const [selectedClassId, setSelectedClassId] = useState('')
   const [selectedShift, setSelectedShift] = useState<ShiftType>('morning')
   const [initialShift, setInitialShift] = useState<ShiftType>('morning')
@@ -149,7 +151,7 @@ export function AdminSchedulePage() {
 
   useEffect(() => {
     if (!selectedClassId) return
-    if (Object.keys(dirtyKeys).length > 0) return
+    if (Object.keys(dirtyKeysRef.current).length > 0) return
     const fromData = data ? getLessonCount(data) : 0
     const fromClass = selectedClass?.maxLessonsPerWeek
     const effectiveCount = Math.min(
@@ -161,7 +163,7 @@ export function AdminSchedulePage() {
     const map = data ? buildGridMap(data, slots) : buildGridMap([], slots)
     setOriginalByKey(map)
     setCurrentByKey(map)
-  }, [data, selectedClassId, selectedClass?.maxLessonsPerWeek, dirtyKeys])
+  }, [data, selectedClassId, selectedClass?.maxLessonsPerWeek])
 
   useEffect(() => {
     const updateOrientationState = () => {
