@@ -54,15 +54,22 @@ const WEEKDAY_OPTIONS = [
   { label: 'Пт', index: 4 },
 ] as const
 
-function formatCurrentDateTime() {
+/** День недели и дата выбранного учебного дня (как в сетке Пн–Пт). Время — только если это сегодня. */
+function formatSelectedScheduleDay(weekStart: Date, dayIndex: number): string {
+  const d = new Date(weekStart)
+  d.setDate(weekStart.getDate() + dayIndex)
+  const now = new Date()
+  const isToday =
+    d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate()
   const formatter = new Intl.DateTimeFormat('ru-RU', {
     weekday: 'long',
     day: 'numeric',
     month: 'long',
-    hour: '2-digit',
-    minute: '2-digit',
+    ...(isToday ? { hour: '2-digit', minute: '2-digit' } : {}),
   })
-  const value = formatter.format(new Date())
+  const value = formatter.format(d)
   return value.charAt(0).toUpperCase() + value.slice(1)
 }
 
@@ -138,10 +145,15 @@ export function TodayPage() {
     return base
   }, [weekOffset])
 
+  const scheduleDayTitle = useMemo(
+    () => formatSelectedScheduleDay(weekStart, dayIndex),
+    [weekStart, dayIndex]
+  )
+
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 px-4 py-6">
       <PageHeader
-        title={formatCurrentDateTime()}
+        title={scheduleDayTitle}
         subtitle="Выберите урок, чтобы открыть журнал"
       />
 

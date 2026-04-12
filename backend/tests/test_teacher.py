@@ -301,15 +301,36 @@ def test_teacher_save_grade_wrong_subject_403(
 
 
 def test_teacher_journal_returns_grades_from_bulk_query(
-    client: TestClient, db, teacher_headers, class_1a, student_user, subject_math, schedule_slot_today
+    client: TestClient,
+    db,
+    teacher_headers,
+    class_1a,
+    student_user,
+    subject_math,
+    teacher_user,
+    journal_grade_date,
 ):
     """Журнал возвращает оценки, загруженные одним массовым запросом (не N×M)."""
-    today = date.today()
+    gday = journal_grade_date
+    day_label = WEEKDAY_LABELS[gday.weekday()]
+    slot = ScheduleSlot(
+        id=uuid.uuid4(),
+        class_id=class_1a.id,
+        subject_id=subject_math.id,
+        day_label=day_label,
+        lesson_number=1,
+        time="09:00",
+        shift="morning",
+        teacher_id=teacher_user.id,
+        teacher_name="Teacher",
+        room="101",
+    )
+    db.add(slot)
     g = Grade(
         id=uuid.uuid4(),
         student_id=student_user.id,
         subject_id=subject_math.id,
-        date=today,
+        date=gday,
         value="5",
     )
     db.add(g)
@@ -324,7 +345,7 @@ def test_teacher_journal_returns_grades_from_bulk_query(
     assert "grades" in data
     student_grades = data["grades"].get(str(student_user.id))
     assert student_grades is not None
-    date_iso = today.isoformat()
+    date_iso = gday.isoformat()
     assert date_iso in data["dates"]
     # value may be string or int in JSON
     assert student_grades.get(date_iso) in (5, "5")

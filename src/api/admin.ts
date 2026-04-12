@@ -138,12 +138,12 @@ export async function getAdminJournal(
 }
 
 export async function getAdminScheduleWeek(
-  weekStartISO: string,
+  weekStartYmd: string,
   classId: string,
   shift: ShiftType
 ): Promise<AdminScheduleSlot[]> {
   const params = new URLSearchParams({
-    week_start_iso: weekStartISO,
+    week_start_iso: weekStartYmd,
     class_id: classId,
     shift,
   })

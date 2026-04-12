@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class UserBase(BaseModel):
@@ -19,8 +19,7 @@ class UserResponse(UserBase):
     # для ученика: ФИО привязанных родителей
     parent_names: list[str] | None = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
     @classmethod
     def from_orm_user(cls, user):
@@ -84,9 +83,6 @@ class AdminUserResponse(UserResponse):
     child_ids: list[str] | None = None
     class_ids: list[str] | None = None
     subject_ids: list[str] | None = None
-
-    class Config:
-        from_attributes = True
 
     @classmethod
     def from_orm_user(
