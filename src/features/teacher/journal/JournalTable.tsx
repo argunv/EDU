@@ -147,6 +147,50 @@ export function JournalTable({
     }
   }, [isLoadingMore, onReachLeftEdge])
 
+  const handleSave = useCallback(async () => {
+    if (readOnly || !activeCell) return
+    const valueToSave = draftValueRef.current
+    // Моки: сохраняем локально в UI-стейте таблицы.
+    setGrades((prev) => ({
+      ...prev,
+      [activeCell.studentId]: {
+        ...prev[activeCell.studentId],
+        [activeCell.date]: valueToSave,
+      },
+    }))
+    try {
+      if (onSaveGrade) {
+        await onSaveGrade(activeCell.studentId, activeCell.date, valueToSave)
+      }
+    } finally {
+      setLastEditedCell(activeCell)
+      setActiveCell(null)
+    }
+  }, [activeCell, onSaveGrade, readOnly])
+
+  const handleSaveAndMove = useCallback(async (nextCell: { studentId: string; date: string }) => {
+    if (readOnly || !activeCell) return
+    const valueToSave = draftValueRef.current
+    setGrades((prev) => ({
+      ...prev,
+      [activeCell.studentId]: {
+        ...prev[activeCell.studentId],
+        [activeCell.date]: valueToSave,
+      },
+    }))
+    try {
+      if (onSaveGrade) {
+        await onSaveGrade(activeCell.studentId, activeCell.date, valueToSave)
+      }
+    } finally {
+      setLastEditedCell(activeCell)
+      const nextValue = grades[nextCell.studentId]?.[nextCell.date] ?? null
+      draftValueRef.current = nextValue
+      setDraftValue(nextValue)
+      setActiveCell(nextCell)
+    }
+  }, [activeCell, grades, onSaveGrade, readOnly])
+
   useEffect(() => {
     updateScrollState()
     const container = scrollRef.current
@@ -162,7 +206,7 @@ export function JournalTable({
       container.removeEventListener('scroll', handleScroll)
       window.removeEventListener('resize', handleResize)
     }
-  }, [data.dates.length, data.students.length, onReachLeftEdge, isLoadingMore])
+  }, [data.dates.length, data.students.length, updateScrollState])
 
   useEffect(() => {
     if (prependedColumnsCount <= 0 || !scrollRef.current || !onScrollPositionRestored) return
@@ -286,6 +330,8 @@ export function JournalTable({
     hoveredRowId,
     lastEditedCell,
     readOnly,
+    handleSave,
+    handleSaveAndMove,
   ])
 
   const handleOpen = (studentId: string, date: string) => {
@@ -299,50 +345,6 @@ export function JournalTable({
     draftValueRef.current = current
     setDraftValue(current)
   }
-
-  const handleSave = useCallback(async () => {
-    if (readOnly || !activeCell) return
-    const valueToSave = draftValueRef.current
-    // Моки: сохраняем локально в UI-стейте таблицы.
-    setGrades((prev) => ({
-      ...prev,
-      [activeCell.studentId]: {
-        ...prev[activeCell.studentId],
-        [activeCell.date]: valueToSave,
-      },
-    }))
-    try {
-      if (onSaveGrade) {
-        await onSaveGrade(activeCell.studentId, activeCell.date, valueToSave)
-      }
-    } finally {
-      setLastEditedCell(activeCell)
-      setActiveCell(null)
-    }
-  }, [activeCell, onSaveGrade, readOnly])
-
-  const handleSaveAndMove = useCallback(async (nextCell: { studentId: string; date: string }) => {
-    if (readOnly || !activeCell) return
-    const valueToSave = draftValueRef.current
-    setGrades((prev) => ({
-      ...prev,
-      [activeCell.studentId]: {
-        ...prev[activeCell.studentId],
-        [activeCell.date]: valueToSave,
-      },
-    }))
-    try {
-      if (onSaveGrade) {
-        await onSaveGrade(activeCell.studentId, activeCell.date, valueToSave)
-      }
-    } finally {
-      setLastEditedCell(activeCell)
-      const nextValue = grades[nextCell.studentId]?.[nextCell.date] ?? null
-      draftValueRef.current = nextValue
-      setDraftValue(nextValue)
-      setActiveCell(nextCell)
-    }
-  }, [activeCell, grades, onSaveGrade, readOnly])
 
   const scrollByAmount = (direction: -1 | 1) => {
     const container = scrollRef.current

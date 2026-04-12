@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class ClassResponse(BaseModel):
@@ -8,8 +8,7 @@ class ClassResponse(BaseModel):
     shift_locked: bool | None = None
     max_lessons_per_week: int | None = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class StudentOptionResponse(BaseModel):

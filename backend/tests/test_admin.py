@@ -340,13 +340,15 @@ def test_admin_schedule_changes_swap_teachers_no_conflict(client: TestClient, db
     assert slot_9a_after is not None and slot_9a_after.teacher_name == "Пётр Сидоров"
 
 
-def test_admin_journal(client: TestClient, db, auth_headers, class_1a, student_user, subject_math):
-    today = date.today()
+def test_admin_journal(
+    client: TestClient, db, auth_headers, class_1a, student_user, subject_math, journal_grade_date
+):
+    gday = journal_grade_date
     g = Grade(
         id=uuid.uuid4(),
         student_id=student_user.id,
         subject_id=subject_math.id,
-        date=today,
+        date=gday,
         value="5",
     )
     db.add(g)
@@ -356,8 +358,8 @@ def test_admin_journal(client: TestClient, db, auth_headers, class_1a, student_u
         params={
             "class_id": str(class_1a.id),
             "subject_id": str(subject_math.id),
-            "from_date": today.isoformat(),
-            "to_date": today.isoformat(),
+            "from_date": gday.isoformat(),
+            "to_date": gday.isoformat(),
         },
         headers=auth_headers,
     )

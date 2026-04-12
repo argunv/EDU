@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useNavigate, useSearchParams } from 'react-router-dom'
@@ -33,6 +33,7 @@ import { ScheduleGridMobile } from './schedule/ScheduleGridMobile'
 import { ScheduleEditModal } from './schedule/ScheduleEditModal'
 import { ScheduleSaveBar } from './schedule/ScheduleSaveBar'
 import { isSameSlot } from './schedule/utils'
+import { formatLocalDateYmd } from '../../lib/localDate'
 
 const MOBILE_BREAKPOINT = 768
 
@@ -59,6 +60,8 @@ export function AdminSchedulePage() {
     return base
   }, [weekOffset])
 
+  const weekStartYmd = useMemo(() => formatLocalDateYmd(weekStart), [weekStart])
+
   const classesQuery = useQuery({
     queryKey: ['admin', 'classes'],
     queryFn: () => getAdminClasses(),
@@ -71,7 +74,7 @@ export function AdminSchedulePage() {
     enabled: isAdmin,
   })
 
-  const classes = classesQuery.data ?? []
+  const classes = useMemo(() => classesQuery.data ?? [], [classesQuery.data])
   const schoolSettings = settingsQuery.data
   const isTwoShift = false
 
@@ -83,14 +86,14 @@ export function AdminSchedulePage() {
   const selectedClass = classes.find((item) => item.id === selectedClassId)
   const isShiftLocked = Boolean(selectedClass?.shiftLocked)
 
-  const resolveDefaultShift = (classId: string) => {
+  const resolveDefaultShift = useCallback((classId: string) => {
     const classItem = classes.find((item) => item.id === classId)
     return classItem?.shift ?? schoolSettings?.classShiftRules?.[classId] ?? null
-  }
+  }, [classes, schoolSettings])
 
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['admin', 'schedule', 'week', weekStart.toISOString(), selectedClassId, selectedShift],
-    queryFn: () => getAdminScheduleWeek(weekStart.toISOString(), selectedClassId, selectedShift),
+    queryKey: ['admin', 'schedule', 'week', weekStartYmd, selectedClassId, selectedShift],
+    queryFn: () => getAdminScheduleWeek(weekStartYmd, selectedClassId, selectedShift),
     enabled: isAdmin && Boolean(selectedClassId),
     // Важный кейс: предмет могли удалить в другой вкладке админки.
     // "always" гарантирует синхронизацию расписания при возврате во вкладку,
@@ -132,7 +135,17 @@ export function AdminSchedulePage() {
     if (changed) {
       setSearchParams(nextParams, { replace: true })
     }
-  }, [classes, classIdParam, normalizedShift, isTwoShift, searchParams, setSearchParams, navigate, selectedClassId])
+  }, [
+    classes,
+    classIdParam,
+    normalizedShift,
+    isTwoShift,
+    searchParams,
+    setSearchParams,
+    navigate,
+    selectedClassId,
+    resolveDefaultShift,
+  ])
 
   useEffect(() => {
     if (!selectedClassId) return
@@ -148,7 +161,7 @@ export function AdminSchedulePage() {
     const map = data ? buildGridMap(data, slots) : buildGridMap([], slots)
     setOriginalByKey(map)
     setCurrentByKey(map)
-  }, [data, selectedClassId, selectedClass?.maxLessonsPerWeek])
+  }, [data, selectedClassId, selectedClass?.maxLessonsPerWeek, dirtyKeys])
 
   useEffect(() => {
     const updateOrientationState = () => {

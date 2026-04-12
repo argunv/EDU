@@ -11,6 +11,7 @@ import { useChildSelection } from './useChildSelection'
 import { DaySection } from '../me/components/DaySection'
 import { WeekNavigator } from '../me/components/WeekNavigator'
 import { isForbidden } from '../../lib/errors'
+import { formatLocalDateYmd } from '../../lib/localDate'
 import type { ScheduleItem } from '../../types/schedule'
 
 const WEEK_DAYS = ['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница'] as const
@@ -52,10 +53,6 @@ function formatWeekRange(start: Date) {
   return `${formatter.format(start)}–${formatter.format(end)}`
 }
 
-function weekStartToISO(d: Date): string {
-  return d.toISOString().split('T')[0]
-}
-
 /**
  * Текущий учебный год: если месяц >= 9, то текущий год, иначе предыдущий.
  * Локальный календарь браузера. Правило совпадает по смыслу с сервером (админка uses APP_TIMEZONE),
@@ -78,18 +75,18 @@ function getSchoolYearWeekBounds(): { firstMonday: Date; lastMonday: Date } {
 }
 
 export function SchedulePage() {
-  const [weekStartISO, setWeekStartISO] = useState<string>(() =>
-    weekStartToISO(getWeekStart(new Date()))
+  const [weekStartYmd, setWeekStartYmd] = useState<string>(() =>
+    formatLocalDateYmd(getWeekStart(new Date()))
   )
   const { user } = useAuth()
   const { childId, setChildId, children, isChildrenLoading } = useChildSelection()
   const activeChildId = user?.role === 'parent' ? childId : (user?.id ?? '')
 
-  const weekStart = useMemo(() => new Date(weekStartISO + 'T00:00:00'), [weekStartISO])
+  const weekStart = useMemo(() => new Date(weekStartYmd + 'T00:00:00'), [weekStartYmd])
 
   const { data = [], isLoading, isError, refetch, error } = useQuery<ScheduleItem[]>({
-    queryKey: ['me', 'schedule', 'week', activeChildId, weekStartISO],
-    queryFn: () => getMySchedule('week', activeChildId, weekStartISO),
+    queryKey: ['me', 'schedule', 'week', activeChildId, weekStartYmd],
+    queryFn: () => getMySchedule('week', activeChildId, weekStartYmd),
     enabled: !!activeChildId,
   })
 
@@ -119,7 +116,20 @@ export function SchedulePage() {
     })
   }, [data])
 
-  const currentDateTime = useMemo(() => formatCurrentDateTime(), [])
+  const [currentDateTime, setCurrentDateTime] = useState(() => formatCurrentDateTime())
+  useEffect(() => {
+    const tick = () => setCurrentDateTime(formatCurrentDateTime())
+    tick()
+    const id = window.setInterval(tick, 60_000)
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') tick()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      window.clearInterval(id)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [])
   const { firstMonday, lastMonday } = useMemo(() => getSchoolYearWeekBounds(), [])
   const thisWeekStart = getWeekStart(new Date())
   const isCurrentWeek = weekStart.getTime() === thisWeekStart.getTime()
@@ -131,16 +141,16 @@ export function SchedulePage() {
     if (!canGoPrev) return
     const d = new Date(weekStart)
     d.setDate(d.getDate() - 7)
-    setWeekStartISO(weekStartToISO(d))
+    setWeekStartYmd(formatLocalDateYmd(d))
   }
   const goNextWeek = () => {
     if (!canGoNext) return
     const d = new Date(weekStart)
     d.setDate(d.getDate() + 7)
-    setWeekStartISO(weekStartToISO(d))
+    setWeekStartYmd(formatLocalDateYmd(d))
   }
   const goToCurrentWeek = () => {
-    setWeekStartISO(weekStartToISO(getWeekStart(new Date())))
+    setWeekStartYmd(formatLocalDateYmd(getWeekStart(new Date())))
   }
 
   return (

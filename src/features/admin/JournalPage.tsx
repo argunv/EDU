@@ -9,6 +9,7 @@ import { JournalTable } from '../teacher/journal/JournalTable'
 import { type JournalData, type JournalGrade } from '../../types/journal'
 import { getGradeClass } from '../../lib/gradeColors'
 import { getInitialJournalRange, getOlderBlockRange } from '../../lib/journalPeriod'
+import { formatLocalDateYmd } from '../../lib/localDate'
 
 const MOBILE_BREAKPOINT = 768
 const INITIAL_RANGE = getInitialJournalRange()
@@ -35,7 +36,7 @@ function mapAdminToJournalTable(
   classNameDisplay?: string,
 ): JournalData {
   // Даты приходят с бэкенда: только дни недели (Пн–Пт) по расписанию, включая сегодня если урок сегодня
-  const dates = data.dates?.length ? data.dates : [new Date().toISOString().split('T')[0]]
+  const dates = data.dates?.length ? data.dates : [formatLocalDateYmd(new Date())]
   const grades = data.students.reduce<Record<string, Record<string, JournalGrade>>>(
     (acc, student) => {
       acc[student.id] = {}

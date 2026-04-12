@@ -13,11 +13,11 @@ export async function getMyChildren(): Promise<ChildOption[]> {
 export async function getMySchedule(
   viewMode: 'day' | 'week',
   childId?: string,
-  weekStartISO?: string
+  weekStartYmd?: string
 ): Promise<ScheduleItem[]> {
   const params: Record<string, string> = { view: viewMode }
   if (childId) params.child_id = childId
-  if (viewMode === 'week' && weekStartISO) params.week_start_iso = weekStartISO
+  if (viewMode === 'week' && weekStartYmd) params.week_start_iso = weekStartYmd
   const { data } = await api.get<Array<{
     id: string
     day_label: string

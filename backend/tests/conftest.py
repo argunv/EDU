@@ -11,6 +11,7 @@ os.environ["ENVIRONMENT"] = "test"
 
 import uuid
 from collections.abc import Generator
+from datetime import date, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -256,3 +257,12 @@ def student_headers(student_user: User):
 def parent_headers(parent_user: User):
     token = create_access_token(str(parent_user.id))
     return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture
+def journal_grade_date() -> date:
+    """Пн–Пт для колонок журнала; в субботу/воскресенье — ближайший предыдущий будний день."""
+    d = date.today()
+    while d.weekday() >= 5:
+        d -= timedelta(days=1)
+    return d
