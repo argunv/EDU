@@ -397,8 +397,10 @@ task check
 
 ### Health
 
-* `GET /health`
-* `GET /ready`
+* `GET /api/health`
+* `GET /api/ready`
+
+Маршруты без префикса — `GET /health` и `GET /ready` — доступны только в `ENVIRONMENT=test` для совместимости тестов.
 
 ## Observability
 
