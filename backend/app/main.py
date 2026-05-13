@@ -116,11 +116,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Root metrics endpoint for Prometheus scrape.
-Instrumentator(
-    should_group_status_codes=True,
-    should_group_untemplated=True,
-).instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
+# /metrics в development / staging / production; в test и прочих — 404 (не в OpenAPI).
+if settings.expose_prometheus_metrics:
+    Instrumentator(
+        should_group_status_codes=True,
+        should_group_untemplated=True,
+    ).instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
 
 API_PREFIX = "/api"
 app.include_router(health.router, prefix=API_PREFIX)
@@ -132,7 +133,7 @@ app.include_router(teacher.router, prefix=API_PREFIX)
 app.include_router(me.router, prefix=API_PREFIX)
 
 # Backward-compatible routes for existing test suite.
-if settings.environment.lower() == "test":
+if settings.environment_key == "test":
     app.include_router(health.router)
     app.include_router(auth.router)
     app.include_router(admin.router)

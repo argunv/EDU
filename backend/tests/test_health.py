@@ -52,11 +52,7 @@ def test_ready_returns_503_when_db_check_fails(app_client: TestClient):
         app.dependency_overrides.pop(get_db, None)
 
 
-def test_metrics_root_endpoint(client: TestClient):
-    """Prometheus metrics are exposed on root /metrics endpoint."""
-    res = client.get("/metrics")
-    assert res.status_code == 200
-    assert "text/plain" in res.headers.get("content-type", "")
-    body = res.text
-    assert "http_requests_total" in body
-    assert "http_request_duration_seconds_bucket" in body
+def test_metrics_root_endpoint(app_client: TestClient):
+    """При ENVIRONMENT=test /metrics выключен (404); иначе см. main.py."""
+    res = app_client.get("/metrics")
+    assert res.status_code == 404

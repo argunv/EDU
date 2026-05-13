@@ -126,6 +126,7 @@ services:
       - "--storage.tsdb.path=/prometheus"
     volumes:
       - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
     depends_on:
       api:
         condition: service_healthy
@@ -133,15 +134,87 @@ services:
 
   grafana:
     image: grafana/grafana:11.2.0
-    environment:
-      GF_SECURITY_ADMIN_USER: ${GF_SECURITY_ADMIN_USER:-admin}
-      GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD:-admin}
     volumes:
       - grafana_data:/var/lib/grafana
       - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./deploy/grafana/dashboards:/var/lib/grafana/dashboards:ro
     depends_on:
       - prometheus
+    restart: unless-stopped
+
+  # ELK: Elasticsearch + Logstash + Kibana (опционально, профиль elk).
+  # Логи контейнеров собирает vector-logs (Docker API → Logstash tcp/json_lines).
+  elasticsearch:
+    profiles:
+      - elk
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.0
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - xpack.security.enrollment.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -fsS 'http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=5s' >/dev/null",
+        ]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 40s
+    restart: unless-stopped
+
+  logstash:
+    profiles:
+      - elk
+    image: docker.elastic.co/logstash/logstash:8.15.0
+    environment:
+      - "LS_JAVA_OPTS=-Xms256m -Xmx256m"
+      - PIPELINE_WORKERS=2
+    volumes:
+      - ./deploy/logstash/pipeline:/usr/share/logstash/pipeline:ro
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9600/ >/dev/null"]
+      interval: 15s
+      timeout: 10s
+      retries: 25
+      start_period: 90s
+    restart: unless-stopped
+
+  kibana:
+    profiles:
+      - elk
+    image: docker.elastic.co/kibana/kibana:8.15.0
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:5601/api/status >/dev/null"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 90s
+    restart: unless-stopped
+
+  vector-logs:
+    profiles:
+      - elk
+    image: timberio/vector:0.44.0-debian
+    user: "0:0"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./deploy/vector/vector.toml:/etc/vector/vector.toml:ro
+    depends_on:
+      logstash:
+        condition: service_healthy
     restart: unless-stopped
 
   notifier:
@@ -182,4 +255,6 @@ services:
 
 volumes:
   pg_data: {}
+  prometheus_data: {}
   grafana_data: {}
+  es_data: {}

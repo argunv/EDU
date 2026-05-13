@@ -204,6 +204,14 @@ uvicorn app.main:app --reload --port 8000
 
 ### Альтернатива через Taskfile (из корня)
 
+Полный сброс и подъём dev-стека (БД, API, nginx, Prometheus, Grafana, ELK, seed, миграции):
+
+```bash
+task dev
+```
+
+Точечные шаги:
+
 ```bash
 docker compose up -d postgres
 task migrate
@@ -404,30 +412,49 @@ task check
 
 Минимальный observability-слой для backend FastAPI:
 
-* `GET /metrics` — Prometheus metrics в корне API (не под `/api`)
+* `GET /metrics` — Prometheus metrics в корне API (не под `/api`), только при **`ENVIRONMENT`** после нормализации (`strip` + lower) равном `development`, `staging` или `production` (см. `Settings.expose_prometheus_metrics` в `app/core/config.py`). В `test` и остальных значениях — **404** (в т.ч. в pytest).
 * `GET /api/health` — liveness (как и раньше)
 * `GET /api/ready` — readiness с проверкой PostgreSQL через `SELECT 1`
 
 Сервисы в Docker Compose:
 
-* Prometheus scrape-ит `api:8000/metrics` внутри docker network
-* Grafana доступна локально в dev на [http://localhost:3001](http://localhost:3001)
+* Prometheus scrape-ит `api:8000/metrics` внутри docker network; данные TSDB в томе `prometheus_data`.
+* Grafana доступна локально в dev на [http://localhost:3001](http://localhost:3001) с **анонимным входом** (роль Admin, только в `docker-compose.override.yml`, без дефолтного `admin`/`admin` в compose).
 * Prometheus доступен локально в dev на [http://localhost:9090](http://localhost:9090)
 
-Dev-учётка Grafana задаётся через `.env`:
-
-* `GF_SECURITY_ADMIN_USER` (по умолчанию `admin`)
-* `GF_SECURITY_ADMIN_PASSWORD` (по умолчанию `admin`)
-
-Быстрая проверка:
+Быстрая проверка (из корня репозитория; нужен `docker-compose.override.yml`, чтобы API был на `localhost:8000`):
 
 ```bash
-docker compose up -d --build api prometheus grafana
+docker compose -f docker-compose.yml -f docker-compose.override.yml up -d --build postgres redis rabbitmq api prometheus grafana
 curl -fsS http://localhost:8000/api/health
 curl -fsS http://localhost:8000/api/ready
 curl -fsS http://localhost:8000/metrics | sed -n '1,20p'
 curl -fsS http://localhost:9090/-/ready
 ```
+
+### ELK stack (опционально)
+
+Профиль Compose `elk` поднимает **Elasticsearch**, **Logstash**, **Kibana** и коллектор **vector-logs** (читает логи контейнеров через Docker API и отправляет JSON в Logstash по TCP — так стек работает и на macOS, и на Linux, без монтирования `/var/lib/docker/containers` с хоста).
+
+Безопасность Elasticsearch **отключена** (только для локальной разработки).
+
+Рекомендуется выделить Docker Desktop / Orbstack **не меньше ~4 GB RAM** под JVM Elasticsearch/Logstash.
+
+Подъём вместе с API (чтобы в Kibana пошли логи `api` и остальных сервисов):
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.override.yml --profile elk up -d elasticsearch logstash kibana vector-logs api
+```
+
+Команда **`task dev`** из корня уже использует `--profile elk` и поднимает весь стек (включая Prometheus, Grafana и ELK), дожидается `healthy` через `docker compose up --wait` (таймаут 10 минут на первый холодный старт), затем выполняет seed и миграции.
+
+Порты на хосте (см. `docker-compose.override.yml`):
+
+* Elasticsearch: [http://localhost:9200](http://localhost:9200)
+* Kibana: [http://localhost:5601](http://localhost:5601)
+* Logstash monitoring API: [http://localhost:9600](http://localhost:9600)
+
+В Kibana создайте **Data view** с шаблоном `docker-logs-*` (индексы вида `docker-logs-YYYY.MM.dd` пишет Logstash). Через минуту-две после трафика по API в **Discover** должны появиться события.
 
 OpenAPI:
 

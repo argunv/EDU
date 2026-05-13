@@ -24,7 +24,7 @@ _DOCKER_INTERNAL_FRONTEND_HOSTS = frozenset(
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    # Environment: "development" | "production". In production, secrets are
+    # Environment: "development" | "staging" | "production". In production, secrets are
     # validated at startup.
     environment: str = "development"
 
@@ -106,6 +106,16 @@ class Settings(BaseSettings):
             )
         return raw
 
+    @property
+    def environment_key(self) -> str:
+        """ENVIRONMENT в нижнем регистре без пробелов по краям (сравнения окружений)."""
+        return (self.environment or "").strip().lower()
+
+    @property
+    def expose_prometheus_metrics(self) -> bool:
+        """Включить /metrics для Prometheus (выключено в test и прочих служебных значениях)."""
+        return self.environment_key in ("production", "development", "staging")
+
 
 settings = Settings()
 
@@ -118,8 +128,7 @@ def reset_password_public_link(token: str) -> str:
 
 def validate_production_secrets() -> None:
     """Fail startup in production if secrets use defaults. Required for audit."""
-    env = getattr(settings, "environment", "development")
-    if env.lower() != "production":
+    if settings.environment_key != "production":
         return
     if settings.jwt_secret == "change-me-in-production":  # nosec B105
         raise ValueError(
