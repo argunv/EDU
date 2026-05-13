@@ -1,198 +1,98 @@
 # ABH Edu
 
-ABH Edu — full-stack MVP-платформа для школы: управление пользователями и ролями, расписанием, уроками, журналом, домашними заданиями и просмотром данных учениками/родителями.
+Full-stack MVP школьной платформы. Покрывает управление пользователями и ролями, расписание, уроки, журнал, домашние задания и просмотр данных учениками и родителями.
 
-Проект состоит из:
-- **Frontend** на React + Vite
-- **Backend** на FastAPI
-- **Инфраструктуры** на PostgreSQL, Redis, RabbitMQ, Docker Compose и nginx
-- **Email notifier** для сценария сброса пароля
+---
+
+## Что реализовано
+
+**Auth и роли**
+- Регистрация с начальной ролью `pending`, вход / выход
+- Refresh token в httpOnly cookie, access token только в памяти
+- Одобрение / отклонение заявок администратором, назначение ролей (`admin`, `teacher`, `student`, `parent`)
+- Сброс пароля через RabbitMQ + email (notifier)
+
+**Администратор**
+- Управление пользователями: одобрение, отклонение, назначение ролей
+- Настройка расписания: класс → смена → день → слоты уроков
+- Просмотр журнала
+
+**Учитель**
+- Уроки по дням (создаются из расписания автоматически при открытии дня)
+- Тема урока, домашнее задание, посещаемость, оценки
+- Журнал по классу и предмету
+
+**Ученик / Родитель**
+- Расписание, домашние задания, прогресс по предметам
+- Родитель выбирает ребёнка, после чего данные переключаются на него
 
 ---
 
 ## Стек
 
-### Frontend
-- React 19
-- TypeScript
-- Vite
-- React Router
-- TanStack Query
-- Tailwind CSS
-- Vitest + Testing Library + MSW
-
-### Backend
-- Python 3.12
-- FastAPI
-- SQLAlchemy
-- Alembic
-- Pydantic
-- Pytest
-
-### Infrastructure
-- PostgreSQL
-- Redis
-- RabbitMQ
-- Docker Compose
-- nginx
+**Frontend:** React 19, TypeScript, Vite, React Router, TanStack Query, Tailwind CSS  
+**Backend:** Python 3.12, FastAPI, SQLAlchemy, Alembic, Pydantic  
+**Infra:** PostgreSQL, Redis, RabbitMQ, Docker Compose, nginx
 
 ---
 
-## Что реализовано (MVP)
+## Состав сервисов
 
-### Аутентификация и роли
-- регистрация пользователя с ролью `pending`
-- вход / выход
-- refresh access token через httpOnly cookie
-- запрос на сброс пароля
-- подтверждение / отклонение пользователя админом
-- назначение ролей:
-  - `admin`
-  - `teacher`
-  - `student`
-  - `parent`
-
-### Администратор
-- просмотр и модерация пользователей
-- одобрение / отклонение заявок
-- назначение ролей
-- управление школьными настройками
-- настройка расписания по:
-  - классу
-  - смене
-  - дню недели
-  - слотам уроков
-- просмотр журнала
-
-### Учитель
-- просмотр уроков по дням
-- автоматическое создание уроков на дату из расписания при открытии дня
-- ввод темы урока
-- ввод домашнего задания
-- сохранение посещаемости
-- выставление оценок
-- работа с журналом по классу и предмету
-
-### Ученик / Родитель
-- просмотр расписания
-- просмотр домашнего задания
-- просмотр прогресса по предметам
-- у родителя — выбор ребёнка
-
-### Сброс пароля
-- запрос письма
-- отправка задачи через RabbitMQ
-- обработка через notifier
-- отправка email через SMTP
+| Сервис | Роль |
+|---|---|
+| `postgres` | Основная БД |
+| `redis` | Rate limiting |
+| `rabbitmq` | Очередь задач для email notifier |
+| `api` | FastAPI приложение |
+| `notifier` | Воркер, читает задачи из очереди и отправляет письма через SMTP |
+| `automigrate` | Одноразовый контейнер, запускает `alembic upgrade head` при старте стека |
+| `web` | nginx, раздаёт собранный фронт |
+| `nginx` | Точка входа: `/api/*` → api, `/*` → web |
 
 ---
 
-## Архитектура (кратко)
+## Быстрый старт
 
-### Frontend
-- `src/features/*` — feature-based UI по ролям и сценариям
-- `src/api/*` — API-клиенты и контракты
-- `src/components/*` — общие UI и layout-компоненты
-- `src/test/*` — тестовая инфраструктура (MSW, render helpers)
-
-### Backend
-- `backend/app/routers/*` — API endpoints
-- `backend/app/services/*` — прикладная логика
-- `backend/app/models/*` — SQLAlchemy модели
-- `backend/app/schemas/*` — Pydantic схемы
-- `backend/app/repositories/*` — точечный repository-слой для сложного admin schedule сценария
-- `backend/alembic/*` — миграции БД
-- `backend/tests/*` — backend tests
-
----
-
-## Быстрый старт (рекомендуемый способ)
-
-### Запуск через Docker Compose
+Отредактируйте .env
 
 ```bash
+cp .env.example .env
 docker compose up -d --build
-````
-
-Поднимаются:
-
-* API
-* PostgreSQL
-* Redis
-* RabbitMQ
-* notifier
-* automigrate
-* nginx
-
-### После запуска
-
-* API: [http://localhost:8000](http://localhost:8000)
-* OpenAPI docs: [http://localhost:8000/docs](http://localhost:8000/docs)
-* Frontend (через nginx): обычно [http://localhost](http://localhost)
-* Frontend dev server (если запускается отдельно): [http://localhost:5173](http://localhost:5173)
-
----
-
-## Docker Compose: dev-режим без полной пересборки
-
-В проекте есть `docker-compose.override.yml`.
-
-При обычном:
-
-```bash
-docker compose up
 ```
 
-для backend:
+или используйте [утилиту task](https://taskfile.dev/).
 
-* код `backend/` монтируется в контейнер `api`
-* включён `uvicorn --reload`
-* изменения в backend подхватываются без полной пересборки
+```bash
+cp .env.example .env
+task dev
+```
 
-Для notifier:
+После запуска:
+- Приложение: `http://localhost`
+- API напрямую (dev): `http://localhost:8000`
+- OpenAPI docs (dev): `http://localhost:8000/docs`
 
-* код тоже монтируется
-* после правок обычно достаточно:
+Миграции применяются автоматически через сервис `automigrate`.
+
+### Dev-режим с hot reload
+
+`docker-compose.override.yml` подхватывается Docker Compose автоматически. В dev-режиме:
+
+- `backend/` монтируется в контейнер `api`, включён `uvicorn --reload`
+- `frontend-watch` пересобирает `dist/` при изменениях в `src/`
+- Порты 5432, 6379, 5672, 8000 пробрасываются на localhost (только 127.0.0.1)
+
+После правок в notifier нужно перезапустить вручную:
 
 ```bash
 docker compose restart notifier
 ```
 
-Для frontend:
-
-* либо пересобирать образ при изменениях
-* либо запускать локально:
-
-```bash
-npm run dev
-```
-
-и открывать:
-
-* [http://localhost:5173](http://localhost:5173)
-
----
-
-## Переменные окружения
-
-Скопируйте `.env.example` в `.env` и заполните значения.
-
-### Основные переменные
-
-* `DATABASE_URL` — PostgreSQL URL
-  пример: `postgresql+psycopg2://postgres:postgres@localhost:5432/abh_edu`
-* `REDIS_URL` — Redis URL
-* `RABBITMQ_URL` — RabbitMQ URL
-* `JWT_SECRET` — секрет для access token
-* `NOTIFIER_QUEUE` — очередь email-задач (обычно `email_tasks`)
-* `SMTP_*` — SMTP-параметры для писем сброса пароля
-* `FRONTEND_URL` — URL фронтенда
-* `VITE_API_URL` — base URL для frontend API client
-* `CORS_ORIGINS` — разрешённые origin'ы (JSON array или comma-separated)
-
 ---
 
 ## Локальный запуск backend (без Docker)
+
+Требуется запущенный PostgreSQL (можно через `docker compose up -d postgres`).
 
 ```bash
 cd backend
@@ -200,15 +100,6 @@ poetry install
 export DATABASE_URL=postgresql+psycopg2://postgres:postgres@localhost:5432/abh_edu
 alembic upgrade head
 uvicorn app.main:app --reload --port 8000
-```
-
-### Альтернатива через Taskfile (из корня)
-
-```bash
-docker compose up -d postgres
-task migrate
-
-task api
 ```
 
 ---
@@ -220,187 +111,137 @@ npm install
 npm run dev
 ```
 
-По умолчанию:
+Frontend dev server: `http://localhost:5173`  
+Vite проксирует `/api` на `http://localhost:8000`. `VITE_API_URL` для dev не нужен.
 
-* frontend dev server: [http://localhost:5173](http://localhost:5173)
-* убедитесь, что `VITE_API_URL` указывает на backend (обычно `http://localhost:8000`)
+---
 
-### Production build
+## Переменные окружения
 
-```bash
-npm run build
-```
+Скопируйте `.env.example` в `.env`. Значения, которые обязательно нужно проверить:
+
+| Переменная | Описание |
+|---|---|
+| `DATABASE_URL` | `postgresql+psycopg2://user:pass@host:5432/db` |
+| `REDIS_URL` | `redis://host:6379/0` |
+| `RABBITMQ_URL`, `RABBITMQ_USER`, `RABBITMQ_PASSWORD` | RabbitMQ (должны совпадать) |
+| `JWT_SECRET` | Секрет для подписи токенов |
+| `FRONTEND_URL` | Публичный URL фронта в браузере — используется в ссылках письма сброса пароля |
+| `CORS_ORIGINS` | JSON array разрешённых origins |
+| `SMTP_*` | SMTP для отправки писем (опционально; без них сброс пароля не отправляет письма) |
+
+`FRONTEND_URL` должен быть реальным browser URL — не именем Docker-сервиса. В dev: `http://localhost`. API не запустится, если передать имя вроде `web` или `nginx`.
 
 ---
 
 ## Seed / тестовые данные
 
-Для dev и демонстрации есть идемпотентный seed.
+Для demo и проверки есть идемпотентный SQL-seed (`backend/scripts/seed_dev.sql`).
+
+Полный сброс + подъём стека + seed:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.override.yml up -d postgres
-task migrate
-task dev-seed
+task dev
 ```
 
-SQL-файл:
+Команда: `down -v` → сборка → запуск сервисов → миграции до 007 → seed → миграции до head.  
+Такой порядок нужен, потому что миграция 008 (backfill) читает данные, которые seed заполняет.
 
-* `backend/scripts/seed_dev.sql`
-
-### Пароль для всех тестовых пользователей
-
-**123456**
-
-### Тестовые аккаунты
-
-| Роль    | Email                                     |
-| ------- | ----------------------------------------- |
-| admin   | [admin@test.ru](mailto:admin@test.ru)     |
-| teacher | [teacher@test.ru](mailto:teacher@test.ru) |
-| student | [user@test.ru](mailto:user@test.ru)       |
-| parent  | [parent@test.ru](mailto:parent@test.ru)   |
-| pending | [pending@test.ru](mailto:pending@test.ru) |
-
-> Использовать только для dev / demo / test среды.
+**Тестовые аккаунты** (пароль для всех: `123456`):
 
 ---
 
 ## Тесты
 
----
+### Backend
 
-## Backend tests
+Backend тесты используют PostgreSQL (не SQLite). Запуск через Docker:
 
 ```bash
-cd backend
-poetry install --with dev
-export DATABASE_URL=postgresql+psycopg2://postgres:postgres@localhost:5432/abh_edu_test
-pytest -v
+task test
 ```
 
-### Важно
+Строит тестовый образ, поднимает postgres, создаёт тестовую БД `abh_edu_test`, прогоняет миграции, запускает pytest с coverage (порог 80%).
 
-Для backend tests используется **PostgreSQL**, а не SQLite, потому что часть сценариев и типов (в частности UUID / миграции / поведение ORM) может вести себя иначе на SQLite.
+Покрытие: auth, admin, classes, me, students, teacher, schedule, journal, rate limit, email queue.
 
-### Примеры покрываемых зон
-
-* auth
-* admin
-* classes
-* me
-* students
-* teacher
-* services (`auth`, `schedule`, `journal_dates`, `rate_limit`, `email_queue`)
-* relation access
-* config / schemas
-
----
-
-## Frontend tests
-
-Frontend тесты написаны на:
-
-* **Vitest**
-* **React Testing Library**
-* **MSW**
-
-### Что покрывается
-
-* API-клиент и контракты
-* routing
-* auth flow
-* ключевые страницы:
-
-  * Login
-  * Admin Users
-  * Admin Schedule
-  * Classes
-  * Journal
-  * Teacher Journal
-
-### Запуск
+### Frontend
 
 ```bash
 npm test
 ```
 
-или (если в проекте используется отдельный скрипт):
+Vitest + React Testing Library + MSW.  
+Покрывает: API-клиент, routing, auth flow, ключевые страницы (Login, Admin Users, Admin Schedule, Classes, Journal).
 
-```bash
-npx vitest run
-```
-
-### Подход
-
-Во frontend используются:
-
-* unit tests для API / utility / contract слоёв
-* component/integration-style tests для ключевых страниц
-* MSW для контролируемого mock API поведения
-
----
-
-## Линтинг
+### Линтинг
 
 ```bash
 task check
 ```
 
-Скрипт гоняет **ESLint** (фронт), **flake8** и **bandit** (бэк). Сборку и тесты смотри `npm run build`, `npm run test`, `task test` и раздел **Тесты** ниже.
+Запускает ESLint (frontend), flake8 и bandit (backend).
 
 ---
 
 ## API Overview
 
-### Auth
+Все маршруты имеют префикс `/api`. Полная документация: `http://localhost:8000/docs`.
 
-* `POST /auth/register`
-* `POST /auth/login`
-* `POST /auth/refresh`
-* `POST /auth/logout`
-* `POST /auth/forgot-password`
-* `POST /auth/reset-password`
-* `GET /auth/me`
+**Auth**
+```
+POST /api/auth/register
+POST /api/auth/login
+POST /api/auth/refresh
+POST /api/auth/logout
+POST /api/auth/forgot-password
+POST /api/auth/reset-password
+GET  /api/auth/me
+```
 
-### Admin
+**Admin**
+```
+GET    /api/admin/users
+POST   /api/admin/users
+POST   /api/admin/users/{id}/approve
+POST   /api/admin/users/{id}/reject
+PATCH  /api/admin/users/{id}/role
+GET    /api/admin/school-settings
+GET    /api/admin/schedule
+POST   /api/admin/schedule/changes
+GET    /api/admin/journal
+```
 
-* `GET /admin/users`
-* `POST /admin/users`
-* `POST /admin/users/{id}/approve`
-* `POST /admin/users/{id}/reject`
-* `PATCH /admin/users/{id}/role`
-* `GET /admin/school-settings`
-* `GET /admin/schedule`
-* `POST /admin/schedule/changes`
-* `GET /admin/journal`
+**Classes / Students**
+```
+GET /api/classes
+GET /api/classes/{id}
+GET /api/students
+```
 
-### Domain
+**Teacher**
+```
+GET  /api/teacher/lessons
+GET  /api/teacher/lessons/{id}/students
+POST /api/teacher/lessons/grades
+GET  /api/teacher/journal
+POST /api/teacher/journal/grade
+```
 
-* `GET /classes`
-* `GET /classes/{id}`
-* `GET /students?search=...`
+**Me (student / parent)**
+```
+GET /api/me/children
+GET /api/me/schedule
+GET /api/me/homework
+GET /api/me/progress
+```
 
-### Teacher
+**Health**
+```
+GET /api/health
+GET /api/ready
+```
 
-* `GET /teacher/lessons`
-* `GET /teacher/lessons/{id}/students`
-* `POST /teacher/lessons/grades`
-* `GET /teacher/journal?class_id=&subject_id=`
-* `POST /teacher/journal/grade`
-
-### Me (student / parent)
-
-* `GET /me/children`
-* `GET /me/schedule`
-* `GET /me/homework`
-* `GET /me/progress`
-
-### Health
-
-* `GET /api/health`
-* `GET /api/ready`
-
-Маршруты без префикса — `GET /health` и `GET /ready` — доступны только в `ENVIRONMENT=test` для совместимости тестов.
 
 ## Observability
 
@@ -430,112 +271,37 @@ curl -fsS http://localhost:8000/api/ready
 curl -fsS http://localhost:8000/metrics | sed -n '1,20p'
 curl -fsS http://localhost:9090/-/ready
 ```
+---
 
-OpenAPI:
+## Сброс пароля
 
-* [http://localhost:8000/docs](http://localhost:8000/docs)
+Флоу: пользователь запрашивает письмо → API помещает задачу в RabbitMQ → notifier берёт задачу и отправляет письмо через SMTP. Ссылка в письме строится на основе `FRONTEND_URL`. Если SMTP не настроен, задача кладётся в очередь, но письмо не уходит — остальной стек при этом работает нормально.
 
 ---
 
-## Auth / Security Notes
+## Ограничения MVP
 
-### Access token
-
-* short-lived
-* хранится только в памяти frontend-приложения
-* **не** хранится в `localStorage`
-
-### Refresh token
-
-* хранится в **httpOnly cookie**
-* ротируется при использовании
-* инвалидируется при смене пароля
-
-### Поведение frontend при 401
-
-* frontend вызывает `POST /auth/refresh`
-* затем повторяет запрос
-* если refresh неуспешен — пользователь разлогинивается
+- Проект рассчитан на demo / учебный сценарий, не на production-нагрузку
+- Frontend структура развивалась итеративно, не везде унифицирована
+- Часть логики осознанно оставлена в router/service слое без полного repository abstraction
+- Приоритет — стабильность demo-сценария
 
 ---
 
-## Короткий demo-сценарий для научрука / проверки
+## Полезные команды
 
-### 1. Войти как admin
-
-* `admin@test.ru / 123456`
-* открыть список пользователей
-* показать pending user
-* показать управление ролями
-* открыть расписание
-* показать журнал
-
-### 2. Войти как teacher
-
-* `teacher@test.ru / 123456`
-* открыть “Сегодня”
-* показать список уроков
-* открыть урок
-* выставить оценки / посещаемость
-* добавить тему и домашнее задание
-* открыть журнал
-
-### 3. Войти как student
-
-* `user@test.ru / 123456`
-* показать расписание
-* показать домашнее задание
-* показать прогресс
-
-### 4. Войти как parent
-
-* `parent@test.ru / 123456`
-* показать выбор ребёнка
-* показать расписание / ДЗ / прогресс
-
----
-
-## Ограничения текущего MVP
-
-* проект ориентирован на **MVP / demo / учебный сценарий**, а не на production-scale эксплуатацию
-* часть frontend-структуры развивалась итеративно и может быть не полностью унифицирована по внутренним соглашениям
-* backend intentionally сохраняет часть логики в router/service слое без полного repository abstraction
-* часть инфраструктурных скриптов и служебных файлов ориентирована на ускорённую разработку и демонстрационный контур
-* приоритет проекта — **стабильность демонстрационного сценария**, а не максимальная архитектурная абстракция
-
----
-
-## Краткая структура проекта
-
-```text
-backend/
-  app/
-    routers/       # API endpoints
-    services/      # business / application logic
-    models/        # SQLAlchemy models
-    schemas/       # Pydantic schemas
-    repositories/  # точечный repository для admin schedule сценария
-  alembic/         # migrations
-  tests/           # backend tests
-
-src/
-  features/        # role-based and feature-based frontend pages
-  api/             # API client and contracts
-  components/      # shared UI / layout
-  test/            # frontend test infra
+```bash
+task dev          # полный сброс + запуск стека + seed
+task up           # запустить стек без пересборки
+task down         # остановить и удалить volumes
+task migrate      # применить миграции через Docker
+task test         # backend тесты в Docker
+task check        # ESLint + flake8 + bandit
+task create-admin # создать admin из переменных ADMIN_* в .env
 ```
-
----
-
-## Дополнительные материалы
-
-При необходимости можно вынести/оставить отдельные документы:
-
-* `docs/testing-frontend.md` — расширенные заметки по frontend testing
-* `docs/user-guide.md` — расширенное пользовательское руководство
 
 ---
 
 ## License
 
-См. файл `LICENSE`.
+Copyright © 2026 Vladislav Argun. All rights reserved. See `LICENSE`.
