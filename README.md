@@ -398,6 +398,36 @@ task check
 ### Health
 
 * `GET /health`
+* `GET /ready`
+
+## Observability
+
+Минимальный observability-слой для backend FastAPI:
+
+* `GET /metrics` — Prometheus metrics в корне API (не под `/api`)
+* `GET /api/health` — liveness (как и раньше)
+* `GET /api/ready` — readiness с проверкой PostgreSQL через `SELECT 1`
+
+Сервисы в Docker Compose:
+
+* Prometheus scrape-ит `api:8000/metrics` внутри docker network
+* Grafana доступна локально в dev на [http://localhost:3001](http://localhost:3001)
+* Prometheus доступен локально в dev на [http://localhost:9090](http://localhost:9090)
+
+Dev-учётка Grafana задаётся через `.env`:
+
+* `GF_SECURITY_ADMIN_USER` (по умолчанию `admin`)
+* `GF_SECURITY_ADMIN_PASSWORD` (по умолчанию `admin`)
+
+Быстрая проверка:
+
+```bash
+docker compose up -d --build api prometheus grafana
+curl -fsS http://localhost:8000/api/health
+curl -fsS http://localhost:8000/api/ready
+curl -fsS http://localhost:8000/metrics | sed -n '1,20p'
+curl -fsS http://localhost:9090/-/ready
+```
 
 OpenAPI:
 

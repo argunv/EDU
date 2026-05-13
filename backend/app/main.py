@@ -7,6 +7,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
+from prometheus_fastapi_instrumentator import Instrumentator
 
 from app.core.config import settings, validate_production_secrets
 from app.routers import auth, health, admin, classes, students, teacher, me
@@ -114,6 +115,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Root metrics endpoint for Prometheus scrape.
+Instrumentator(
+    should_group_status_codes=True,
+    should_group_untemplated=True,
+).instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
 
 API_PREFIX = "/api"
 app.include_router(health.router, prefix=API_PREFIX)
