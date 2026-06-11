@@ -11,7 +11,7 @@ import { getAverageFromGrades } from '../../lib/progressAverage'
 import { ChildSelector } from './ChildSelector'
 import { useAuth } from '../auth/useAuth'
 import { useChildSelection } from './useChildSelection'
-import { isForbidden } from '../../lib/errors'
+import { isForbidden, isNotFound } from '../../lib/errors'
 
 function getGradeClassName(grade: ProgressGrade) {
   if (grade === 5) return 'text-[#35751e]'
@@ -49,6 +49,8 @@ export function ProgressPage() {
   const { user } = useAuth()
   const { childId, setChildId, children, isChildrenLoading } = useChildSelection()
   const activeChildId = user?.role === 'parent' ? childId : (user?.id ?? '')
+  const parentBlocked =
+    user?.role === 'parent' && !isChildrenLoading && children.length === 0
   const yearStart = useMemo(() => getCurrentYearStart(), [])
   const semester = useMemo(() => getCurrentSemester(), [])
 
@@ -58,14 +60,7 @@ export function ProgressPage() {
     enabled: !!activeChildId && typeof yearStart === 'number' && (semester === 1 || semester === 2),
   })
 
-  // Временный отладочный вывод: semester, data, сводка по оценкам (даты в API не приходят — бэкенд отдаёт только значения)
-  if (import.meta.env.DEV && data.length > 0) {
-    console.log('[ProgressPage] semester', semester, 'yearStart', yearStart, 'data', JSON.parse(JSON.stringify(data)))
-    console.log(
-      '[ProgressPage] summary by subject',
-      data.map((item) => ({ subject: item.subject, gradesCount: item.grades.length, grades: item.grades })),
-    )
-  }
+  const isGone = Boolean(isError && error && isNotFound(error))
 
   useEffect(() => {
     if (!isError || !error || !isForbidden(error)) return
@@ -82,20 +77,29 @@ export function ProgressPage() {
 
       <ChildSelector />
 
-      {import.meta.env.DEV && data.length > 0 && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800">
-          [DEBUG] Семестр: {semester} · Предметов: {data.length} · Оценок всего:{' '}
-          {data.reduce((acc, item) => acc + item.grades.length, 0)}
-        </div>
-      )}
-
       <StateWrapper
-        isLoading={isLoading || (user?.role === 'parent' && !activeChildId && isChildrenLoading)}
-        isError={isError}
-        isEmpty={!isLoading && !isError && data.length === 0}
+        isLoading={
+          !parentBlocked &&
+          !isGone &&
+          (isLoading || (user?.role === 'parent' && !activeChildId && isChildrenLoading))
+        }
+        isError={!parentBlocked && !isGone && isError}
+        isEmpty={
+          parentBlocked ||
+          isGone ||
+          (!parentBlocked && !isGone && !isLoading && !isError && data.length === 0)
+        }
         onRetry={refetch}
-        emptyTitle="Нет данных"
-        emptyDescription="Оценок пока нет."
+        emptyTitle={
+          parentBlocked ? 'Нет привязанных детей' : isGone ? 'Данные недоступны' : 'Нет данных'
+        }
+        emptyDescription={
+          parentBlocked
+            ? 'Чтобы видеть оценки, администратор должен привязать ребёнка к вашему аккаунту.'
+            : isGone
+              ? 'Класс могли архивировать или изменили доступ. Обратитесь к администратору школы.'
+              : 'Оценок пока нет.'
+        }
       >
         <div className="flex flex-col gap-3">
           {data.map((item) => {

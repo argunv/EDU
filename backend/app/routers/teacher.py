@@ -17,6 +17,7 @@ from app.models.schedule import ScheduleSlot
 from app.services.relation_access import (
     get_active_student_ids_for_class,
     get_teacher_class_ids,
+    get_teacher_non_archived_class_ids,
     has_user_role,
 )
 from app.schemas.teacher import (
@@ -54,6 +55,11 @@ _WEEKDAY_LABELS_RU = (
     "Суббота",
     "Воскресенье",
 )
+
+
+def _active_teacher_class_ids(db: Session, teacher_user_id: UUID) -> list[UUID]:
+    """Назначения учителя только по неархивным классам."""
+    return get_teacher_non_archived_class_ids(db, teacher_user_id)
 
 
 def _schedule_weekdays_teacher(
@@ -189,7 +195,7 @@ def get_teacher_lessons(
     current_user: TeacherUser = None,
 ):
     target_date = _week_day_index(week_offset, day_index)
-    class_ids = get_teacher_class_ids(db, current_user.id)
+    class_ids = _active_teacher_class_ids(db, current_user.id)
     lessons_with_slots = _get_or_create_teacher_lessons_from_schedule(
         db=db,
         target_date=target_date,
@@ -225,6 +231,12 @@ def get_lesson_students(
     lesson = db.query(Lesson).filter(Lesson.id == lesson_id).first()
     if not lesson:
         raise HTTPException(status_code=404, detail="Урок не найден")
+    cls_row = db.query(Class).filter(Class.id == lesson.class_id).first()
+    if cls_row and cls_row.archived:
+        raise HTTPException(
+            status_code=400,
+            detail="Класс в архиве, данные урока недоступны",
+        )
     # Security: prevent IDOR — only lesson owner may see students.
     if not _lesson_owned_by_teacher(db, lesson, current_user.name, current_user.id):
         raise HTTPException(status_code=403, detail="Доступ к этому уроку запрещён")
@@ -273,6 +285,23 @@ def submit_grades(
     # Security: prevent IDOR — only lesson owner may modify grades/attendance.
     if not _lesson_owned_by_teacher(db, lesson, current_user.name, current_user.id):
         raise HTTPException(status_code=403, detail="Доступ к этому уроку запрещён")
+    cls_row = db.query(Class).filter(Class.id == lesson.class_id).first()
+    if cls_row and cls_row.archived:
+        raise HTTPException(
+            status_code=400,
+            detail="Класс в архиве, изменения недоступны",
+        )
+    allowed_students = set(get_active_student_ids_for_class(db, lesson.class_id))
+    for entry in body.entries:
+        try:
+            esid = UUID(entry.student_id)
+        except (ValueError, TypeError):
+            continue
+        if esid not in allowed_students:
+            raise HTTPException(
+                status_code=403,
+                detail="Ученик не из этого класса",
+            )
     if body.topic is not None:
         lesson.topic = body.topic if body.topic.strip() else None
     if body.homework_text is not None:
@@ -348,25 +377,7 @@ def get_teacher_journal(
     db: DbSession = None,
     current_user: TeacherUser = None,
 ):
-    teacher_class_ids = get_teacher_class_ids(db, current_user.id)
-    if not teacher_class_ids:
-        return JournalDataResponse(
-            class_id="",
-            class_name="",
-            subject="",
-            subject_id="",
-            subjects=[],
-            dates=[],
-            students=[],
-            grades={},
-        )
-    # Только неархивные классы в выборе
-    class_ids = [
-        c.id
-        for c in db.query(Class)
-        .filter(Class.id.in_(teacher_class_ids), Class.archived.is_(False))
-        .all()
-    ]
+    class_ids = get_teacher_non_archived_class_ids(db, current_user.id)
     if not class_ids:
         return JournalDataResponse(
             class_id="",
@@ -498,9 +509,15 @@ def save_teacher_grade(
     except (ValueError, TypeError):
         raise HTTPException(status_code=400, detail="Invalid class_id")
     sub_id = UUID(body.subject_id)
-    teacher_class_ids = get_teacher_class_ids(db, current_user.id)
-    if body_class_id not in teacher_class_ids:
+    teacher_assigned_class_ids = get_teacher_class_ids(db, current_user.id)
+    if body_class_id not in teacher_assigned_class_ids:
         raise HTTPException(status_code=403, detail="Доступ к этому классу запрещён")
+    cls_row = db.query(Class).filter(Class.id == body_class_id).first()
+    if cls_row and cls_row.archived:
+        raise HTTPException(
+            status_code=400,
+            detail="Класс в архиве, изменения недоступны",
+        )
     student = db.query(User).filter(User.id == sid).first()
     if not student or not has_user_role(db, sid, "student"):
         raise HTTPException(status_code=404, detail="Ученик не найден")

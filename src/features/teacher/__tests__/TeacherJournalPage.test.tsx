@@ -1,4 +1,5 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { TeacherJournalPage } from '../TeacherJournalPage'
@@ -29,14 +30,6 @@ vi.mock('@/api/teacherJournal', () => ({
   saveTeacherGrade: (...args: unknown[]) => saveTeacherGradeMock(...args),
 }))
 
-vi.mock('react-router-dom', async () => {
-  const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom')
-  return {
-    ...actual,
-    useParams: () => ({ classId: 'c1' }),
-  }
-})
-
 vi.mock('../journal/JournalTable', () => ({
   JournalTable: ({ onSaveGrade }: { onSaveGrade: (studentId: string, date: string, value: number) => Promise<void> }) => (
     <div>
@@ -55,7 +48,12 @@ describe('TeacherJournalPage', () => {
   })
 
   it('Given journal loaded When grade is saved Then shows success notification', async () => {
-    renderWithProviders(<TeacherJournalPage />, { route: '/teacher/journal/c1' })
+    renderWithProviders(
+      <Routes>
+        <Route path="/teacher/journal/:classId" element={<TeacherJournalPage />} />
+      </Routes>,
+      { route: '/teacher/journal/c1' },
+    )
 
     fireEvent.click(await screen.findByRole('button', { name: 'SaveGrade' }))
     await waitFor(() => {
@@ -66,7 +64,12 @@ describe('TeacherJournalPage', () => {
 
   it('Given save API failure When grade is saved Then shows error notification', async () => {
     saveTeacherGradeMock.mockRejectedValue(new Error('write failed'))
-    renderWithProviders(<TeacherJournalPage />, { route: '/teacher/journal/c1' })
+    renderWithProviders(
+      <Routes>
+        <Route path="/teacher/journal/:classId" element={<TeacherJournalPage />} />
+      </Routes>,
+      { route: '/teacher/journal/c1' },
+    )
 
     fireEvent.click(await screen.findByRole('button', { name: 'SaveGrade' }))
     await waitFor(() => {

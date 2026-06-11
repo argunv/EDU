@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 
 import { apiRegister } from '../../api/auth'
+import { ROLE_HOME } from '../../lib/roleHome'
 import { useAuth } from './useAuth'
 
 const MIN_LEN = 6
@@ -34,7 +35,7 @@ export function RegisterPage() {
         password,
       })
       setUserFromToken(res.accessToken, res.user)
-      navigate('/me/schedule', { replace: true })
+      navigate(ROLE_HOME[res.user.role], { replace: true })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ошибка регистрации')
     } finally {

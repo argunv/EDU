@@ -17,5 +17,9 @@ type = "socket"
 inputs = ["docker_logs"]
 address = "logstash:5000"
 mode = "tcp"
-encoding.codec = "json"
-framing.method = "newline_delimited"
+
+[sinks.logstash.encoding]
+codec = "json"
+
+[sinks.logstash.framing]
+method = "newline_delimited"

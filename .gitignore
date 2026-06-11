@@ -6,6 +6,14 @@ dist/
 *.tsbuildinfo
 .DS_Store
 
+# Python / tooling caches (локально; не трогать .venv вручную — только в .gitignore)
+.venv/
+venv/
+.ruff_cache/
+.hypothesis/
+*.egg-info/
+.eggs/
+
 __pycache__/
 *.py[cod]
 .pytest_cache/
@@ -13,7 +21,8 @@ __pycache__/
 htmlcov/
 coverage/
 .mypy_cache/
-*.ignore
 .cursor/
 .cursorignore
+# Локальные черновики Markdown (например диплом/заметки), не для репозитория
+*.md.ignore
 *.log

@@ -1,23 +1,16 @@
 import { Navigate } from 'react-router-dom'
 
-import { type Role } from '../../types/user'
+import { ROLE_HOME } from '../../lib/roleHome'
 import { useAuth } from './useAuth'
 import { PendingPage } from './PendingPage'
-
-const ROLE_HOME: Record<Role, string> = {
-  teacher: '/teacher/today',
-  student: '/me/schedule',
-  parent: '/me/schedule',
-  admin: '/admin/classes',
-  pending: '/pending',
-  rejected: '/auth/login',
-}
 
 export function PendingGuard() {
   const { user, ready } = useAuth()
 
   if (!ready) {
-    return null
+    return (
+      <div className="px-4 py-6 text-sm text-slate-600">Загрузка...</div>
+    )
   }
   if (!user) {
     return <Navigate to="/auth/login" replace />

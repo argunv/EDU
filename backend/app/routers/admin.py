@@ -26,6 +26,7 @@ from app.models.school_settings import SchoolSettings
 from app.repositories.admin_class_repository import AdminClassRepository
 from app.services.relation_access import (
     ensure_no_enrollment_overlap,
+    get_active_enrollment,
     get_active_student_ids_for_class,
 )
 from app.schemas.user import AdminUserResponse
@@ -55,8 +56,19 @@ from app.services.schedule import (
     apply_schedule_changes,
     check_teacher_schedule_conflicts,
 )
+from app.services.auth import revoke_all_refresh_tokens_for_user
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+
+def _parse_uuid_param(value: str, *, field: str) -> UUID:
+    try:
+        return UUID(value.strip())
+    except (ValueError, TypeError, AttributeError):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Некорректный идентификатор ({field})",
+        ) from None
 
 
 def _get_current_school_year() -> int:
@@ -101,14 +113,7 @@ def _load_admin_user_response(db, user: User) -> AdminUserResponse:
         class_ids = sorted({str(t.class_id) for t in assignments})
         subject_ids = sorted({str(t.subject_id) for t in assignments})
     if user.role == "student":
-        enrollment = (
-            db.query(ClassEnrollment)
-            .filter(
-                ClassEnrollment.student_user_id == user.id,
-                ClassEnrollment.end_date.is_(None),
-            )
-            .first()
-        )
+        enrollment = get_active_enrollment(db, user.id)
         class_id = str(enrollment.class_id) if enrollment else None
     return AdminUserResponse.from_orm_user(
         user,
@@ -158,7 +163,9 @@ def approve_user(
     if user.role != "pending":
         raise HTTPException(status_code=400, detail="Пользователь уже рассмотрен")
     user.role = body.role
-    user.class_id = UUID(body.class_id) if body.class_id else None
+    user.class_id = (
+        _parse_uuid_param(body.class_id, field="class_id") if body.class_id else None
+    )
     db.query(UserRole).filter(UserRole.user_id == user_id).delete()
     db.add(UserRole(user_id=user_id, role=body.role))
     db.query(ParentStudentLink).filter(
@@ -172,16 +179,28 @@ def approve_user(
     ).delete()
     if body.role == "parent" and body.child_ids:
         for cid in body.child_ids:
-            db.add(ParentStudentLink(parent_user_id=user_id, student_user_id=UUID(cid)))
+            db.add(
+                ParentStudentLink(
+                    parent_user_id=user_id,
+                    student_user_id=_parse_uuid_param(cid, field="child_id"),
+                )
+            )
     if body.role == "student" and body.class_id:
+        class_uid = _parse_uuid_param(body.class_id, field="class_id")
         try:
             ensure_no_enrollment_overlap(db, user_id, date.today(), None)
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
-        db.add(ClassEnrollment(student_user_id=user_id, class_id=UUID(body.class_id)))
+        db.add(ClassEnrollment(student_user_id=user_id, class_id=class_uid))
     if body.role == "teacher":
-        class_ids = [UUID(cid) for cid in (body.class_ids or [])]
-        subject_ids = [UUID(sid) for sid in (body.subject_ids or [])]
+        class_ids = [
+            _parse_uuid_param(cid, field="class_id")
+            for cid in (body.class_ids or [])
+        ]
+        subject_ids = [
+            _parse_uuid_param(sid, field="subject_id")
+            for sid in (body.subject_ids or [])
+        ]
         for cid in class_ids:
             for sid in subject_ids:
                 db.add(
@@ -203,6 +222,9 @@ def reject_user(
     if not user:
         raise HTTPException(status_code=404, detail="Пользователь не найден")
     user.role = "rejected"
+    db.query(UserRole).filter(UserRole.user_id == user_id).delete()
+    db.add(UserRole(user_id=user_id, role="rejected"))
+    revoke_all_refresh_tokens_for_user(db, user_id)
     db.commit()
     return None
 
@@ -220,7 +242,9 @@ def patch_user_role(
     if user.role not in ("admin", "teacher", "student", "parent"):
         raise HTTPException(status_code=400, detail="Нельзя изменить роль")
     user.role = body.role
-    user.class_id = UUID(body.class_id) if body.class_id else None
+    user.class_id = (
+        _parse_uuid_param(body.class_id, field="class_id") if body.class_id else None
+    )
     db.query(UserRole).filter(UserRole.user_id == user_id).delete()
     db.add(UserRole(user_id=user_id, role=body.role))
     db.query(ParentStudentLink).filter(
@@ -234,16 +258,28 @@ def patch_user_role(
     ).delete()
     if body.role == "parent" and body.child_ids:
         for cid in body.child_ids:
-            db.add(ParentStudentLink(parent_user_id=user_id, student_user_id=UUID(cid)))
+            db.add(
+                ParentStudentLink(
+                    parent_user_id=user_id,
+                    student_user_id=_parse_uuid_param(cid, field="child_id"),
+                )
+            )
     if body.role == "student" and body.class_id:
+        class_uid = _parse_uuid_param(body.class_id, field="class_id")
         try:
             ensure_no_enrollment_overlap(db, user_id, date.today(), None)
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
-        db.add(ClassEnrollment(student_user_id=user_id, class_id=UUID(body.class_id)))
+        db.add(ClassEnrollment(student_user_id=user_id, class_id=class_uid))
     if body.role == "teacher":
-        class_ids = [UUID(cid) for cid in (body.class_ids or [])]
-        subject_ids = [UUID(sid) for sid in (body.subject_ids or [])]
+        class_ids = [
+            _parse_uuid_param(cid, field="class_id")
+            for cid in (body.class_ids or [])
+        ]
+        subject_ids = [
+            _parse_uuid_param(sid, field="subject_id")
+            for sid in (body.subject_ids or [])
+        ]
         for cid in class_ids:
             for sid in subject_ids:
                 db.add(
@@ -454,6 +490,8 @@ def patch_class(
     repo = AdminClassRepository(db)
     cls = repo.get(class_id)
     if not cls:
+        raise HTTPException(status_code=404, detail="Класс не найден")
+    if cls.archived:
         raise HTTPException(status_code=404, detail="Класс не найден")
     if body.shift is not None:
         cls.shift = body.shift
@@ -672,9 +710,15 @@ def get_admin_schedule(
     week_start_iso: str = Query(...),
     class_id: UUID = Query(..., alias="class_id"),
     shift: str = Query(...),
+    include_archived: bool = Query(False, alias="include_archived"),
     db: DbSession = None,
     current_user: AdminUser = None,
 ):
+    cls = db.query(Class).filter(Class.id == class_id).first()
+    if not cls:
+        raise HTTPException(status_code=404, detail="Класс не найден")
+    if cls.archived and not include_archived:
+        raise HTTPException(status_code=404, detail="Класс не найден")
     slots = (
         db.query(ScheduleSlot)
         .join(
@@ -737,6 +781,7 @@ def get_busy_teachers_at_slot(
         db.query(ScheduleSlot.teacher_name, Class.name.label("class_name"))
         .join(Class, Class.id == ScheduleSlot.class_id)
         .filter(
+            Class.archived.is_(False),
             ScheduleSlot.shift == shift,
             ScheduleSlot.day_label == day_label.strip(),
             ScheduleSlot.lesson_number == lesson_number,
@@ -812,11 +857,14 @@ def get_admin_journal(
     to_date: str | None = Query(
         None, alias="to_date", description="Конец периода (ISO YYYY-MM-DD)"
     ),
+    include_archived: bool = Query(False, alias="include_archived"),
     db: DbSession = None,
     current_user: AdminUser = None,
 ):
     cls = db.query(Class).filter(Class.id == class_id).first()
     if not cls:
+        raise HTTPException(status_code=404, detail="Класс не найден")
+    if cls.archived and not include_archived:
         raise HTTPException(status_code=404, detail="Класс не найден")
     sub = (
         db.query(Subject).filter(Subject.id == subject_id).first()

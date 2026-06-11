@@ -106,6 +106,22 @@ def _resolve_child_id(current_user: User, child_id: str | None, db: Session) -> 
     return cid_uuid
 
 
+def _active_student_class_id_or_404(db: Session, student_user_id: UUID) -> UUID:
+    u = db.query(User).filter(User.id == student_user_id).first()
+    enrollment = get_active_enrollment(db, student_user_id)
+    student_class_id = enrollment.class_id if enrollment else None
+    if not u or not has_user_role(db, u.id, "student") or not student_class_id:
+        cid_log = str(uuid4())[:12]
+        logger.warning(
+            "me student_context status=404 correlation_id=%s detail=user_not_student",
+            cid_log,
+        )
+        raise HTTPException(
+            status_code=404, detail="Пользователь не найден или не ученик"
+        )
+    return student_class_id
+
+
 @router.get("/children", response_model=list[ChildResponse])
 def get_my_children(db: DbSession = None, current_user: CurrentUser = None):
     if has_user_role(db, current_user.id, "student"):
@@ -167,19 +183,12 @@ def get_my_schedule(
     current_user: CurrentUser = None,
 ):
     cid = _resolve_child_id(current_user, child_id, db)
-    u = db.query(User).filter(User.id == cid).first()
-    enrollment = get_active_enrollment(db, cid)
-    student_class_id = enrollment.class_id if enrollment else None
-    if not u or not has_user_role(db, u.id, "student") or not student_class_id:
-        cid_log = str(uuid4())[:12]
-        logger.warning(
-            "me schedule status=404 correlation_id=%s detail=user_not_student",
-            cid_log,
-        )
-        raise HTTPException(
-            status_code=404, detail="Пользователь не найден или не ученик"
-        )
+    student_class_id = _active_student_class_id_or_404(db, cid)
     cls = db.query(Class).filter(Class.id == student_class_id).first()
+    if cls and cls.archived:
+        raise HTTPException(
+            status_code=404, detail="Класс в архиве, расписание недоступно"
+        )
     shift = cls.shift if cls and cls.shift else "morning"
     slots = (
         db.query(ScheduleSlot)
@@ -253,17 +262,11 @@ def get_my_homework(
     current_user: CurrentUser = None,
 ):
     cid = _resolve_child_id(current_user, child_id, db)
-    u = db.query(User).filter(User.id == cid).first()
-    enrollment = get_active_enrollment(db, cid)
-    student_class_id = enrollment.class_id if enrollment else None
-    if not u or not has_user_role(db, u.id, "student") or not student_class_id:
-        cid_log = str(uuid4())[:12]
-        logger.warning(
-            "me homework status=404 correlation_id=%s detail=user_not_student",
-            cid_log,
-        )
+    student_class_id = _active_student_class_id_or_404(db, cid)
+    cls = db.query(Class).filter(Class.id == student_class_id).first()
+    if cls and cls.archived:
         raise HTTPException(
-            status_code=404, detail="Пользователь не найден или не ученик"
+            status_code=404, detail="Класс в архиве, домашние задания недоступны"
         )
     today = date.today()
     if range_filter == "today":
@@ -284,8 +287,6 @@ def get_my_homework(
         )
         .all()
     )
-    from app.models.subject import Subject
-
     result = []
     for h in items:
         sub = db.query(Subject).filter(Subject.id == h.subject_id).first()
@@ -352,6 +353,12 @@ def get_my_progress(
             detail=f"year_start должен быть от {_YEAR_MIN} до {_YEAR_MAX}",
         )
     cid = _resolve_child_id(current_user, child_id, db)
+    student_class_id = _active_student_class_id_or_404(db, cid)
+    cls = db.query(Class).filter(Class.id == student_class_id).first()
+    if cls and cls.archived:
+        raise HTTPException(
+            status_code=404, detail="Класс в архиве, успеваемость недоступна"
+        )
     start_d, end_d = get_semester_range(year_start, semester)
     q = db.query(Grade).filter(Grade.student_id == cid)
     q = q.filter(Grade.date >= start_d, Grade.date <= end_d)

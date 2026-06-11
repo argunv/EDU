@@ -116,7 +116,6 @@ export function JournalTable({
   }, [data.grades])
 
   useEffect(() => {
-    // Убираем подсветку hover при смене активной ячейки (клавиатура).
     setHoveredRowId(null)
     setHoveredColIndex(null)
   }, [activeCell])
@@ -150,7 +149,6 @@ export function JournalTable({
   const handleSave = useCallback(async () => {
     if (readOnly || !activeCell) return
     const valueToSave = draftValueRef.current
-    // Моки: сохраняем локально в UI-стейте таблицы.
     setGrades((prev) => ({
       ...prev,
       [activeCell.studentId]: {

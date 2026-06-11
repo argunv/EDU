@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useParams, useSearchParams } from 'react-router-dom'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 
 import { getTeacherLessons, submitGrades } from '../../api/teacher'
@@ -93,20 +93,50 @@ export function LessonPage() {
     queryKey: ['teacher', 'lessons', weekOffset, dayIndex],
     queryFn: () => getTeacherLessons({ weekOffset, dayIndex }),
   })
+  const { refetch, isError, isLoading, data: lessons } = lessonsQuery
 
   const lesson = useMemo(
-    () => lessonsQuery.data?.find((item) => item.id === lessonId),
-    [lessonsQuery.data, lessonId],
+    () => lessons?.find((item) => item.id === lessonId),
+    [lessons, lessonId],
   )
 
-  if (lessonsQuery.isLoading) {
-    return <div className="p-5 text-sm text-slate-600">Загрузка урока…</div>
+  if (isLoading) {
+    return (
+      <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 px-4 py-6">
+        <div className="h-8 w-2/3 max-w-xs animate-pulse rounded-lg bg-slate-200" />
+        <div className="h-24 w-full animate-pulse rounded-xl bg-slate-100" />
+        <div className="h-12 w-full animate-pulse rounded-lg bg-slate-100" />
+      </div>
+    )
   }
 
-  if (lessonsQuery.isError || !lesson || !lessonId) {
+  if (isError) {
     return (
-      <div className="p-5 text-sm text-rose-700">
-        Не удалось открыть урок. Попробуйте позже.
+      <div className="mx-auto flex w-full max-w-2xl flex-col gap-3 px-4 py-6">
+        <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+          Не удалось загрузить уроки. Проверьте соединение и попробуйте снова.
+        </div>
+        <button
+          type="button"
+          onClick={() => void refetch()}
+          className="h-11 rounded-lg bg-slate-900 text-sm font-semibold text-white"
+        >
+          Повторить
+        </button>
+        <Link to="/teacher/today" className="text-sm font-medium text-slate-600 underline">
+          К сегодняшним урокам
+        </Link>
+      </div>
+    )
+  }
+
+  if (!lessonId || !lesson) {
+    return (
+      <div className="mx-auto flex w-full max-w-2xl flex-col gap-3 px-4 py-6 text-sm text-slate-700">
+        <p>Урок не найден в выбранном дне. Возможно, расписание изменилось или ссылка устарела.</p>
+        <Link to="/teacher/today" className="font-medium text-slate-900 underline">
+          К сегодняшним урокам
+        </Link>
       </div>
     )
   }

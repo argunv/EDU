@@ -198,7 +198,7 @@ export async function getAdminSchoolSettings(): Promise<AdminSchoolSettings> {
     '/admin/school-settings'
   )
   return mapAdminSchoolSettings({
-    is_two_shift: data?.is_two_shift ?? true,
+    is_two_shift: data?.is_two_shift ?? false,
     class_shift_rules: data?.class_shift_rules,
   })
 }

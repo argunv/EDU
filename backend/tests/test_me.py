@@ -70,6 +70,17 @@ def test_me_schedule_unauthorized(client: TestClient):
     assert res.status_code == 401
 
 
+def test_me_schedule_teacher_unsupported_role_403(client: TestClient, teacher_headers):
+    """/me/schedule только для student/parent — учитель получает 403."""
+    res = client.get("/api/me/schedule", headers=teacher_headers)
+    assert res.status_code == 403
+
+
+def test_me_schedule_admin_unsupported_role_403(client: TestClient, auth_headers):
+    res = client.get("/api/me/schedule", headers=auth_headers)
+    assert res.status_code == 403
+
+
 def test_me_homework_student(client: TestClient, student_headers, homework_item):
     res = client.get("/api/me/homework", params={"range": "week"}, headers=student_headers)
     assert res.status_code == 200
@@ -81,6 +92,18 @@ def test_me_homework_student(client: TestClient, student_headers, homework_item)
 def test_me_homework_unauthorized(client: TestClient):
     res = client.get("/api/me/homework")
     assert res.status_code == 401
+
+
+def test_me_homework_parent_with_child_id(client: TestClient, parent_headers, homework_item, student_user):
+    """Родитель с child_id видит домашку выбранного ребёнка (та же выборка, что у ученика)."""
+    res = client.get(
+        "/api/me/homework",
+        params={"range": "week", "child_id": str(student_user.id)},
+        headers=parent_headers,
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert any(h.get("subject") == "Математика" and "математике" in (h.get("text") or "") for h in data)
 
 
 def test_me_progress_student(client: TestClient, student_headers, db, student_user, subject_math):
@@ -96,7 +119,7 @@ def test_me_progress_student(client: TestClient, student_headers, db, student_us
     db.add(g)
     db.flush()
     res = client.get(
-        "/me/progress",
+        "/api/me/progress",
         params={"year_start": 2024, "semester": 1},
         headers=student_headers,
     )
@@ -118,7 +141,7 @@ def test_me_progress_parent(client: TestClient, parent_headers, db, student_user
     db.add(g)
     db.flush()
     res = client.get(
-        "/me/progress",
+        "/api/me/progress",
         params={"child_id": str(student_user.id), "year_start": 2024, "semester": 1},
         headers=parent_headers,
     )
@@ -129,7 +152,7 @@ def test_me_progress_parent(client: TestClient, parent_headers, db, student_user
 
 def test_me_progress_invalid_semester(client: TestClient, student_headers):
     res = client.get(
-        "/me/progress",
+        "/api/me/progress",
         params={"year_start": 2024, "semester": 3},
         headers=student_headers,
     )
@@ -138,7 +161,7 @@ def test_me_progress_invalid_semester(client: TestClient, student_headers):
 
 def test_me_progress_missing_year_start(client: TestClient, student_headers):
     res = client.get(
-        "/me/progress",
+        "/api/me/progress",
         params={"semester": 1},
         headers=student_headers,
     )
@@ -147,13 +170,13 @@ def test_me_progress_missing_year_start(client: TestClient, student_headers):
 
 def test_me_progress_year_start_out_of_range(client: TestClient, student_headers):
     res = client.get(
-        "/me/progress",
+        "/api/me/progress",
         params={"year_start": 1999, "semester": 1},
         headers=student_headers,
     )
     assert res.status_code == 400
     res2 = client.get(
-        "/me/progress",
+        "/api/me/progress",
         params={"year_start": 2101, "semester": 1},
         headers=student_headers,
     )
@@ -168,7 +191,6 @@ def test_me_progress_unauthorized(client: TestClient):
 def test_me_progress_parent_wrong_child_403(client: TestClient, parent_headers, db, class_1a):
     """parent с child_id другого ученика (не своего) получает 403."""
     from app.models.user import User
-    from app.models.parent import ParentChild
     other_student = User(
         id=uuid.uuid4(),
         email="other.student@test.com",
@@ -180,7 +202,7 @@ def test_me_progress_parent_wrong_child_403(client: TestClient, parent_headers, 
     db.add(other_student)
     db.commit()
     res = client.get(
-        "/me/progress",
+        "/api/me/progress",
         params={"child_id": str(other_student.id), "year_start": 2024, "semester": 1},
         headers=parent_headers,
     )
@@ -191,7 +213,7 @@ def test_me_progress_parent_nonexistent_child_404(client: TestClient, parent_hea
     """parent с несуществующим child_id получает 404."""
     fake_uuid = uuid.uuid4()
     res = client.get(
-        "/me/progress",
+        "/api/me/progress",
         params={"child_id": str(fake_uuid), "year_start": 2024, "semester": 1},
         headers=parent_headers,
     )
@@ -212,7 +234,7 @@ def test_me_progress_parent_no_child_id_first_child_200(client: TestClient, pare
     db.add(g)
     db.flush()
     res = client.get(
-        "/me/progress",
+        "/api/me/progress",
         params={"year_start": 2024, "semester": 1},
         headers=parent_headers,
     )
@@ -235,7 +257,7 @@ def test_me_progress_student_child_id_ignored_200(client: TestClient, student_he
     db.add(g)
     db.flush()
     res = client.get(
-        "/me/progress",
+        "/api/me/progress",
         params={"child_id": str(uuid.uuid4()), "year_start": 2024, "semester": 1},
         headers=student_headers,
     )

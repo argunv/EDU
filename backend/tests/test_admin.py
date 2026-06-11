@@ -2,18 +2,16 @@
 import uuid
 from datetime import date
 
-import pytest
 from fastapi.testclient import TestClient
 
 from app.models.user import User
-from app.models.class_model import Class
 from app.models.grade import Grade
 from app.models.homework import Homework
 from app.models.lesson import Lesson
 from app.models.class_subject import ClassSubject
 from app.models.role_profiles import TeacherAssignment, UserRole
 from app.models.schedule import ScheduleSlot
-from app.services.auth import hash_password, create_access_token
+from app.services.auth import hash_password
 
 
 # Все тесты используют client, db, auth_headers, admin_user и др. из conftest

@@ -7,3 +7,10 @@ export function isForbidden(error: unknown): boolean {
   const response = (error as { response?: { status?: number } }).response
   return response?.status === 403
 }
+
+/** Ответ 404 — например, архивный класс или снятый сущностный ресурс. */
+export function isNotFound(error: unknown): boolean {
+  if (error == null || typeof error !== 'object') return false
+  const response = (error as { response?: { status?: number } }).response
+  return response?.status === 404
+}

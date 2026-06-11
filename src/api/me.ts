@@ -82,7 +82,6 @@ export async function getMyProgress(
   if (childId) params.child_id = childId
   if (typeof yearStart === 'number') params.year_start = yearStart
   if (semester === 1 || semester === 2) params.semester = semester
-  console.log('[getMyProgress] params', params)
   const { data } = await api.get<Array<{
     subject: string
     teacher_name: string

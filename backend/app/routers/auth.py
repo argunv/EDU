@@ -1,8 +1,10 @@
 import hashlib
 import secrets
 from datetime import timedelta
+from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
+from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.timeutil import now
@@ -26,6 +28,7 @@ from app.services.auth import (
     rotate_refresh_token,
     revoke_refresh_token,
     revoke_all_refresh_tokens_for_user,
+    decode_access_token,
 )
 from app.services.rate_limit import check_rate_limit
 from app.services.email_queue import publish_email_task
@@ -37,6 +40,53 @@ REFRESH_COOKIE_NAME = "refresh_token"
 REFRESH_COOKIE_HTTPONLY = True
 REFRESH_COOKIE_SAMESITE = "lax"
 REFRESH_COOKIE_MAX_AGE_DAYS = 7
+
+
+def _client_ip(request: Request) -> str:
+    return request.client.host if request.client else "unknown"
+
+
+def _ensure_login_or_refresh_allowed(db: Session, user: User) -> None:
+    """Вход и ротация refresh: как в deps — отклонённые и ожидающие не получают сессию."""
+    if user.role == "rejected" or has_user_role(db, user.id, "rejected"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Доступ отклонён"
+        )
+    if user.role == "pending" or has_user_role(db, user.id, "pending"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Учётная запись ожидает одобрения администратором",
+        )
+
+
+def _ensure_auth_me_bearer_allowed(db: Session, user: User) -> None:
+    """GET /auth/me по Bearer: ожидающие видят профиль (фронт /pending); отклонённые — нет."""
+    if user.role == "rejected" or has_user_role(db, user.id, "rejected"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Доступ отклонён"
+        )
+
+
+def _reject_or_revoke_new_refresh(
+    db: Session,
+    user: User,
+    raw_new: str,
+    response: Response,
+) -> None:
+    """Отклонённые и ожидающие: отзываем только что выданный refresh и cookie."""
+    if user.role == "rejected" or has_user_role(db, user.id, "rejected"):
+        revoke_refresh_token(db, _refresh_token_hash(raw_new))
+        _clear_refresh_cookie(response)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Доступ отклонён"
+        )
+    if user.role == "pending" or has_user_role(db, user.id, "pending"):
+        revoke_refresh_token(db, _refresh_token_hash(raw_new))
+        _clear_refresh_cookie(response)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Учётная запись ожидает одобрения администратором",
+        )
 
 
 def _set_refresh_cookie(request: Request, response: Response, raw_token: str) -> None:
@@ -80,11 +130,7 @@ def register(
     response: Response,
     db: DbSession,
 ):
-    check_rate_limit(
-        "register",
-        request.client.host if request.client else "unknown",
-        settings.rate_limit_register,
-    )
+    check_rate_limit("register", _client_ip(request), settings.rate_limit_register)
     existing = db.query(User).filter(User.email == body.email.lower()).first()
     if existing:
         raise HTTPException(
@@ -117,21 +163,14 @@ def login(
     response: Response,
     db: DbSession,
 ):
-    check_rate_limit(
-        "login",
-        request.client.host if request.client else "unknown",
-        settings.rate_limit_login,
-    )
+    check_rate_limit("login", _client_ip(request), settings.rate_limit_login)
     user = db.query(User).filter(User.email == body.login.lower()).first()
     if not user or not verify_password(body.password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Неверный логин или пароль",
         )
-    if has_user_role(db, user.id, "rejected"):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="Доступ отклонён"
-        )
+    _ensure_login_or_refresh_allowed(db, user)
     raw_refresh, _ = create_refresh_token(db, user.id)
     access = create_access_token(str(user.id))
     _set_refresh_cookie(request, response, raw_refresh)
@@ -161,6 +200,7 @@ def refresh(
             detail="Invalid or expired refresh token",
         )
     raw_new, user = result
+    _reject_or_revoke_new_refresh(db, user, raw_new, response)
     _set_refresh_cookie(request, response, raw_new)
     access = create_access_token(str(user.id))
     return TokenResponse(
@@ -188,11 +228,7 @@ def forgot_password(
     request: Request,
     db: DbSession,
 ):
-    check_rate_limit(
-        "forgot",
-        request.client.host if request.client else "unknown",
-        settings.rate_limit_forgot,
-    )
+    check_rate_limit("forgot", _client_ip(request), settings.rate_limit_forgot)
     user = db.query(User).filter(User.email == body.email.lower()).first()
     if user:
         token_raw = secrets.token_urlsafe(32)
@@ -221,11 +257,7 @@ def reset_password(
     request: Request,
     db: DbSession,
 ):
-    check_rate_limit(
-        "reset",
-        request.client.host if request.client else "unknown",
-        settings.rate_limit_reset,
-    )
+    check_rate_limit("reset", _client_ip(request), settings.rate_limit_reset)
     token_hash = hashlib.sha256(body.token.encode()).hexdigest()
     pt = (
         db.query(PasswordResetToken)
@@ -263,23 +295,28 @@ def me(
     auth_header = request.headers.get("Authorization")
     if auth_header and auth_header.startswith("Bearer "):
         token = auth_header[7:]
-        from app.services.auth import decode_access_token
-
         payload = decode_access_token(token)
         if payload:
             user_id = payload.get("sub")
-            user = db.query(User).filter(User.id == user_id).first()
-            if user:
-                return TokenResponse(
-                    access_token=token,
-                    user=UserResponse.from_orm_user_with_db(user, db),
-                )
+            try:
+                uid = UUID(user_id) if isinstance(user_id, str) else user_id
+            except (ValueError, TypeError):
+                uid = None
+            if uid is not None:
+                user = db.query(User).filter(User.id == uid).first()
+                if user:
+                    _ensure_auth_me_bearer_allowed(db, user)
+                    return TokenResponse(
+                        access_token=token,
+                        user=UserResponse.from_orm_user_with_db(user, db),
+                    )
     raw = _get_refresh_token_from_cookie(request)
     if raw:
         token_hash = _refresh_token_hash(raw)
         result = rotate_refresh_token(db, token_hash)
         if result:
             raw_new, user = result
+            _reject_or_revoke_new_refresh(db, user, raw_new, response)
             _set_refresh_cookie(request, response, raw_new)
             access = create_access_token(str(user.id))
             return TokenResponse(

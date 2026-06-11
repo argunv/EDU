@@ -6,10 +6,15 @@ vars:
 
 tasks:
   check:
-    desc: Lint frontend (ESLint) and backend (flake8, bandit)
+    desc: Lint + production build фронта и lint бэка (как минимум frontend + backend jobs в CI)
     cmd: |
       npm run lint
-      cd backend && poetry run flake8 app && poetry run bandit -r app
+      npm run build
+      cd backend && poetry run flake8 app tests && poetry run bandit -r app
+
+  test-frontend:
+    desc: Frontend tests с coverage (как job frontend-tests в CI)
+    cmd: npm run test:coverage
 
   migrate:
     desc: Run Alembic migrations via Docker (starts postgres if needed, then runs automigrate)

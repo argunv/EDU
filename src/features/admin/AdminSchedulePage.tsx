@@ -78,7 +78,8 @@ export function AdminSchedulePage() {
 
   const classes = useMemo(() => classesQuery.data ?? [], [classesQuery.data])
   const schoolSettings = settingsQuery.data
-  const isTwoShift = false
+  const settingsKnown = !settingsQuery.isLoading
+  const isTwoShift = schoolSettings?.isTwoShift ?? false
 
   const classIdParam = searchParams.get('classId')
   const shiftParam = searchParams.get('shift')
@@ -107,12 +108,17 @@ export function AdminSchedulePage() {
   useEffect(() => {
     if (!classes.length) return
     if (!classIdParam || !classes.some((item) => item.id === classIdParam)) {
+      toast.message('Класс не найден в списке. Возможно, он в архиве или снят с учёта.')
       navigate('/admin/classes', { replace: true })
       return
     }
     const validClassId = classIdParam
     const defaultShift = resolveDefaultShift(validClassId) ?? 'morning'
-    const shiftToSet = isTwoShift ? (normalizedShift ?? defaultShift) : 'morning'
+    const shiftToSet = settingsKnown
+      ? isTwoShift
+        ? (normalizedShift ?? defaultShift)
+        : 'morning'
+      : (normalizedShift ?? defaultShift)
     setSelectedClassId(validClassId)
     setSelectedShift(shiftToSet)
     if (validClassId !== selectedClassId) {
@@ -125,14 +131,16 @@ export function AdminSchedulePage() {
       nextParams.set('classId', validClassId)
       changed = true
     }
-    if (isTwoShift) {
-      if (nextParams.get('shift') !== shiftToSet) {
-        nextParams.set('shift', shiftToSet)
+    if (settingsKnown) {
+      if (isTwoShift) {
+        if (nextParams.get('shift') !== shiftToSet) {
+          nextParams.set('shift', shiftToSet)
+          changed = true
+        }
+      } else if (nextParams.has('shift')) {
+        nextParams.delete('shift')
         changed = true
       }
-    } else if (nextParams.has('shift')) {
-      nextParams.delete('shift')
-      changed = true
     }
     if (changed) {
       setSearchParams(nextParams, { replace: true })
@@ -142,6 +150,7 @@ export function AdminSchedulePage() {
     classIdParam,
     normalizedShift,
     isTwoShift,
+    settingsKnown,
     searchParams,
     setSearchParams,
     navigate,

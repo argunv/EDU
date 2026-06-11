@@ -6,7 +6,10 @@ from jose import jwt
 
 from app.core.config import settings
 from app.core.timeutil import now
-from app.services.auth import create_access_token
+from app.models.class_model import Class
+from app.models.role_profiles import UserRole
+from app.models.user import User
+from app.services.auth import create_access_token, hash_password
 
 
 def test_get_current_user_optional_no_header(client: TestClient, db):
@@ -22,6 +25,62 @@ def test_get_current_user_optional_invalid_token(client: TestClient):
 def test_get_current_user_optional_valid_token(client: TestClient, auth_headers):
     res = client.get("/api/classes", headers=auth_headers)
     assert res.status_code == 200
+
+
+def test_pending_user_bearer_gets_403_on_protected_route(client: TestClient, db):
+    cls = Class(
+        id=uuid.uuid4(),
+        name="1A",
+        year_start=2024,
+        grade=1,
+        letter="A",
+        shift="morning",
+        archived=False,
+    )
+    db.add(cls)
+    db.flush()
+    user = User(
+        id=uuid.uuid4(),
+        email="pend_classes@test.com",
+        password_hash=hash_password("x"),
+        name="Pending",
+        role="pending",
+    )
+    db.add(user)
+    db.commit()
+    db.add(UserRole(user_id=user.id, role="pending"))
+    db.commit()
+    token = create_access_token(str(user.id))
+    res = client.get("/api/classes", headers={"Authorization": f"Bearer {token}"})
+    assert res.status_code == 403
+
+
+def test_rejected_user_bearer_gets_403_on_protected_route(client: TestClient, db):
+    cls = Class(
+        id=uuid.uuid4(),
+        name="1A",
+        year_start=2024,
+        grade=1,
+        letter="A",
+        shift="morning",
+        archived=False,
+    )
+    db.add(cls)
+    db.flush()
+    user = User(
+        id=uuid.uuid4(),
+        email="rej_classes@test.com",
+        password_hash=hash_password("x"),
+        name="Rejected",
+        role="rejected",
+    )
+    db.add(user)
+    db.commit()
+    db.add(UserRole(user_id=user.id, role="rejected"))
+    db.commit()
+    token = create_access_token(str(user.id))
+    res = client.get("/api/classes", headers={"Authorization": f"Bearer {token}"})
+    assert res.status_code == 403
 
 
 def test_require_roles_admin_only(client: TestClient, student_headers):
