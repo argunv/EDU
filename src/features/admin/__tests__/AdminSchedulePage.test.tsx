@@ -18,12 +18,16 @@ vi.mock('@/features/auth/useAuth', () => ({
   useAuth: () => ({ user: { id: 'u1', name: 'User', role: currentRole } }),
 }))
 
-vi.mock('@/api/admin', () => ({
-  getAdminClasses: vi.fn().mockResolvedValue([{ id: 'c1', name: '5А', shift: 'morning', shiftLocked: false }]),
-  getAdminSchoolSettings: vi.fn().mockResolvedValue({ isTwoShift: true, classShiftRules: {} }),
-  getAdminScheduleWeek: vi.fn().mockResolvedValue([]),
-  saveAdminScheduleChanges: vi.fn(),
-}))
+vi.mock('@/api/admin', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/api/admin')>()
+  return {
+    ...actual,
+    getAdminClasses: vi.fn().mockResolvedValue([{ id: 'c1', name: '5А', shift: 'morning', shiftLocked: false }]),
+    getAdminSchoolSettings: vi.fn().mockResolvedValue({ isTwoShift: true, classShiftRules: {} }),
+    getAdminScheduleWeek: vi.fn().mockResolvedValue([]),
+    saveAdminScheduleChanges: vi.fn(),
+  }
+})
 
 vi.mock('../schedule/ScheduleGridDesktop', () => ({
   ScheduleGridDesktop: () => <div>DesktopGrid</div>,

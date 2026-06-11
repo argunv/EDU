@@ -2,3 +2,6 @@
 # Black wraps code at 88; 100 avoids splitting long Russian API/error strings.
 max-line-length = 100
 extend-ignore = E203
+per-file-ignores =
+    tests/conftest.py:E402
+    tests/*.py:E501

@@ -1,13 +1,48 @@
 """
 Общие фикстуры для API-тестов.
 
-Требуется PostgreSQL (DATABASE_URL=postgresql+psycopg2://...).
-Каждый тест получает изолированную сессию и схему (create_all/drop_all).
+Нужен PostgreSQL и схема из миграций. URL БД: как в ``app.db.session``
+(``load_dotenv`` корень репо + ``backend/``), без старого дефолта ``sqlite://``.
+На хосте hostname ``postgres`` из Compose заменяется на ``127.0.0.1``, если нет ``/.dockerenv``.
 """
 import os
+from pathlib import Path
 
-# До любых импортов app.*: в main монтируются маршруты без префикса /api для совместимости с тестами.
 os.environ["ENVIRONMENT"] = "test"
+# Как в CI (.github/workflows/ci.yml): без Redis лимитер не должен блокировать auth (503).
+os.environ.setdefault("RATE_LIMIT_FAIL_CLOSED", "false")
+
+_BACKEND_DIR = Path(__file__).resolve().parent.parent
+_REPO_ROOT = _BACKEND_DIR.parent
+
+
+def _database_url_for_tests() -> str:
+    """Единый URL: те же .env и settings, что у app.db.session после выставления DATABASE_URL."""
+    from dotenv import load_dotenv
+
+    load_dotenv(_REPO_ROOT / ".env", override=False)
+    load_dotenv(_BACKEND_DIR / ".env", override=False)
+
+    from sqlalchemy.engine.url import make_url
+    from sqlalchemy.exc import ArgumentError
+
+    from app.core.config import settings
+
+    raw = (os.environ.get("DATABASE_URL") or "").strip() or settings.database_url
+    if Path("/.dockerenv").exists():
+        return raw
+    try:
+        u = make_url(raw)
+    except (ArgumentError, ValueError):
+        return raw
+    # С хоста IDE hostname сервиса Compose не резолвится; в контейнере не трогаем.
+    if u.drivername.startswith("postgresql") and u.host == "postgres":
+        return str(u.set(host="127.0.0.1"))
+    return raw
+
+
+DATABASE_URL = _database_url_for_tests()
+os.environ["DATABASE_URL"] = DATABASE_URL
 
 import uuid
 from collections.abc import Generator
@@ -18,22 +53,16 @@ from fastapi.testclient import TestClient
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.models.base import Base
 from app.models.user import User
 from app.models.class_model import Class
 from app.models.subject import Subject
-from app.models.teacher import TeacherClass, TeacherSubject
-from app.models.parent import ParentChild
 from app.models.role_profiles import ClassEnrollment, ParentStudentLink, TeacherAssignment, UserRole
-from app.models.school_settings import SchoolSettings
 from app.services.auth import hash_password, create_access_token
 from app.db.session import engine as _app_engine, SessionLocal as _AppSessionLocal
 from app.main import app
 
-DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///:memory:")
-
 # PostgreSQL обязателен; используем тот же engine/session, что и приложение
-if "postgresql" not in DATABASE_URL:
+if "postgresql" not in DATABASE_URL.lower():
     _engine = None
     _SessionLocal = None
 else:
@@ -99,7 +128,10 @@ def db(test_engine) -> Generator[Session, None, None]:
 
 @pytest.fixture
 def client(db: Session) -> Generator[TestClient, None, None]:
-    """HTTP-клиент к API. БД не подменяется — приложение использует ту же DATABASE_URL и видит данные, закоммиченные в db."""
+    """HTTP-клиент к API.
+
+    БД не подменяется: приложение использует ту же DATABASE_URL и видит данные из db.
+    """
     with TestClient(app) as c:
         yield c
 
@@ -183,9 +215,13 @@ def teacher_user(db: Session, class_1a: Class, class_9a: Class, subject_math: Su
     db.add(UserRole(user_id=user.id, role="teacher"))
     db.commit()
     db.refresh(user)
-    db.add(TeacherClass(teacher_id=user.id, class_id=class_1a.id))
-    db.add(TeacherSubject(teacher_id=user.id, subject_id=subject_math.id))
-    db.add(TeacherAssignment(teacher_user_id=user.id, class_id=class_1a.id, subject_id=subject_math.id))
+    db.add(
+        TeacherAssignment(
+            teacher_user_id=user.id,
+            class_id=class_1a.id,
+            subject_id=subject_math.id,
+        )
+    )
     db.commit()
     db.refresh(user)
     return user
@@ -225,7 +261,6 @@ def parent_user(db: Session, student_user: User):
     db.add(UserRole(user_id=user.id, role="parent"))
     db.commit()
     db.refresh(user)
-    db.add(ParentChild(parent_id=user.id, child_id=student_user.id))
     db.add(ParentStudentLink(parent_user_id=user.id, student_user_id=student_user.id))
     db.commit()
     db.refresh(user)
@@ -266,3 +301,16 @@ def journal_grade_date() -> date:
     while d.weekday() >= 5:
         d -= timedelta(days=1)
     return d
+
+
+def pytest_terminal_summary(terminalreporter, exitstatus, config):
+    """Подсказка при массовом skip: чаще всего нет БД или не прогнаны миграции."""
+    skipped = terminalreporter.stats.get("skipped", [])
+    if len(skipped) < 40:
+        return
+    terminalreporter.ensure_newline()
+    terminalreporter.write_line(
+        "Много skipped: интеграционные тесты ждут PostgreSQL и схему (alembic). "
+        "Поднимите postgres и выполните `poetry run alembic upgrade head`, "
+        "либо `task test` из корня репо."
+    )

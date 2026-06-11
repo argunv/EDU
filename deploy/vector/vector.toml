@@ -1,0 +1,25 @@
+# Собирает stdout/stderr контейнеров через Docker API и шлёт JSON-строки в Logstash (tcp/json_lines).
+# Исключаем сами сервисы стека, чтобы не раздувать индекс шумом.
+
+[sources.docker_logs]
+type = "docker_logs"
+exclude_containers = [
+  "*elasticsearch*",
+  "*logstash*",
+  "*kibana*",
+  "*vector-logs*",
+  "*prometheus*",
+  "*grafana*",
+]
+
+[sinks.logstash]
+type = "socket"
+inputs = ["docker_logs"]
+address = "logstash:5000"
+mode = "tcp"
+
+[sinks.logstash.encoding]
+codec = "json"
+
+[sinks.logstash.framing]
+method = "newline_delimited"

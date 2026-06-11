@@ -41,6 +41,31 @@ services:
         "log_config.json",
       ]
 
+  prometheus:
+    ports:
+      - "127.0.0.1:9090:9090"
+
+  grafana:
+    ports:
+      - "127.0.0.1:3001:3000"
+    # Без дефолтного admin/admin: вход не нужен (только dev, см. README).
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Admin"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+
+  elasticsearch:
+    ports:
+      - "127.0.0.1:9200:9200"
+
+  kibana:
+    ports:
+      - "127.0.0.1:5601:5601"
+
+  logstash:
+    ports:
+      - "127.0.0.1:9600:9600"
+
   notifier:
     volumes:
       - ./backend:/app
@@ -54,7 +79,7 @@ services:
 
   # Автосборка фронта в dev: пересобирает dist при изменениях в src.
   frontend-watch:
-    image: node:20-alpine
+    image: node:22.12.0-alpine
     working_dir: /app
     command: sh -c "npm ci && npm run build -- --watch"
     volumes:

@@ -1,4 +1,7 @@
+from datetime import date
+
 from fastapi import APIRouter, HTTPException, Query, status
+from sqlalchemy import or_
 
 from app.deps import CurrentUser, DbSession
 from app.models.user import User
@@ -34,9 +37,31 @@ def list_students(
         class_ids = get_teacher_class_ids(db, current_user.id)
         if not class_ids:
             return []
-        student_ids_query = student_ids_query.filter(
-            ClassEnrollment.class_id.in_(class_ids),
-            ClassEnrollment.end_date.is_(None),
+        today = date.today()
+        student_ids_query = (
+            student_ids_query.join(Class, Class.id == ClassEnrollment.class_id)
+            .filter(
+                ClassEnrollment.class_id.in_(class_ids),
+                Class.archived.is_(False),
+                ClassEnrollment.start_date <= today,
+                or_(
+                    ClassEnrollment.end_date.is_(None),
+                    ClassEnrollment.end_date >= today,
+                ),
+            )
+        )
+    else:
+        today = date.today()
+        student_ids_query = (
+            student_ids_query.join(Class, Class.id == ClassEnrollment.class_id)
+            .filter(
+                Class.archived.is_(False),
+                ClassEnrollment.start_date <= today,
+                or_(
+                    ClassEnrollment.end_date.is_(None),
+                    ClassEnrollment.end_date >= today,
+                ),
+            )
         )
     q = db.query(User).filter(User.id.in_(student_ids_query))
     if search and search.strip():

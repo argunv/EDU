@@ -6,7 +6,9 @@ import { getMyProgress } from '../../api/me'
 import { PageHeader } from '../../components/layout/PageHeader'
 import { StateWrapper } from '../../components/shared/StateWrapper'
 import { useAuth } from '../auth/useAuth'
+import { useChildSelection } from '../student/useChildSelection'
 import type { SubjectProgress } from '../../types/progress'
+import { ROLE_HOME } from '../../lib/roleHome'
 import { getAverageFromGrades } from '../../lib/progressAverage'
 import { useHeaderBack } from '../../contexts/useHeaderBack'
 
@@ -44,18 +46,25 @@ function getCurrentSemester(): 1 | 2 {
 
 export function MyProfilePage() {
   const { user } = useAuth()
+  const { childId, children, isChildrenLoading } = useChildSelection()
   const navigate = useNavigate()
   const headerBack = useHeaderBack()
 
   const isStudentOrParent = user?.role === 'student' || user?.role === 'parent'
+  const progressChildId = user?.role === 'parent' ? childId : undefined
 
   const yearStart = useMemo(() => getCurrentYearStart(), [])
   const semester = useMemo(() => getCurrentSemester(), [])
 
+  const progressEnabled =
+    isStudentOrParent &&
+    (user?.role === 'student' ||
+      (user?.role === 'parent' && Boolean(childId) && children.length > 0))
+
   const { data = [], isLoading, isError, refetch } = useQuery<SubjectProgress[]>({
-    queryKey: ['me', 'profile', 'average', yearStart, semester],
-    queryFn: () => getMyProgress(undefined, yearStart, semester),
-    enabled: isStudentOrParent,
+    queryKey: ['me', 'profile', 'average', progressChildId, yearStart, semester],
+    queryFn: () => getMyProgress(progressChildId, yearStart, semester),
+    enabled: progressEnabled,
   })
 
   const overallAverage = useMemo(() => {
@@ -67,11 +76,17 @@ export function MyProfilePage() {
   const initials = getInitials(user?.name)
   const fullName = user?.name ?? 'Не указано'
 
-  const averageDisplay = isStudentOrParent
-    ? overallAverage !== null
-      ? overallAverage.toString()
-      : 'Нет данных'
-    : 'Нет данных'
+  const averageDisplay = !isStudentOrParent
+    ? '—'
+    : user?.role === 'parent' && isChildrenLoading
+      ? '…'
+    : user?.role === 'parent' && children.length === 0
+      ? 'Нет привязанных детей'
+      : user?.role === 'parent' && !childId
+        ? 'Выберите ребёнка в разделе «Расписание»'
+        : overallAverage !== null
+          ? overallAverage.toString()
+          : 'Нет данных'
 
   const handleBack = useCallback(() => {
     if (window.history.length > 2) {
@@ -79,19 +94,11 @@ export function MyProfilePage() {
       return
     }
     const role = user?.role
-    if (role === 'admin') {
-      navigate('/admin/classes', { flushSync: true })
+    if (role) {
+      navigate(ROLE_HOME[role], { replace: true })
       return
     }
-    if (role === 'teacher') {
-      navigate('/teacher/today', { flushSync: true })
-      return
-    }
-    if (role === 'student' || role === 'parent') {
-      navigate('/me/schedule', { flushSync: true })
-      return
-    }
-    navigate('/', { flushSync: true })
+    navigate('/', { replace: true })
   }, [navigate, user])
 
   useEffect(() => {
@@ -118,7 +125,7 @@ export function MyProfilePage() {
       <section className="space-y-2">
         <div className="text-sm font-semibold uppercase tracking-wide text-slate-500">Средний балл</div>
         <StateWrapper
-          isLoading={isLoading && isStudentOrParent}
+          isLoading={isLoading && progressEnabled}
           isError={isError}
           isEmpty={false}
           onRetry={refetch}

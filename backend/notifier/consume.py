@@ -81,7 +81,16 @@ def on_message(ch, method, properties, body):
     try:
         task = json.loads(body)
         if task.get("type") == "reset_password":
-            send_reset_email(task["email"], task["token"])
+            email = (task.get("email") or "").strip()
+            token = task.get("token")
+            if not email or not isinstance(token, str):
+                logger.warning("reset_password task missing email or token")
+            else:
+                token = token.strip()
+                if not token or "\n" in token or "\r" in token:
+                    logger.warning("reset_password task has invalid token")
+                else:
+                    send_reset_email(email, token)
         elif task.get("type") == "lesson_cancelled":
             send_lesson_cancelled_emails(
                 task.get("emails") or [],

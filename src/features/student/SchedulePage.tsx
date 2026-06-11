@@ -10,7 +10,7 @@ import { useAuth } from '../auth/useAuth'
 import { useChildSelection } from './useChildSelection'
 import { DaySection } from '../me/components/DaySection'
 import { WeekNavigator } from '../me/components/WeekNavigator'
-import { isForbidden } from '../../lib/errors'
+import { isForbidden, isNotFound } from '../../lib/errors'
 import { formatLocalDateYmd } from '../../lib/localDate'
 import type { ScheduleItem } from '../../types/schedule'
 
@@ -81,6 +81,8 @@ export function SchedulePage() {
   const { user } = useAuth()
   const { childId, setChildId, children, isChildrenLoading } = useChildSelection()
   const activeChildId = user?.role === 'parent' ? childId : (user?.id ?? '')
+  const parentBlocked =
+    user?.role === 'parent' && !isChildrenLoading && children.length === 0
 
   const weekStart = useMemo(() => new Date(weekStartYmd + 'T00:00:00'), [weekStartYmd])
 
@@ -89,6 +91,8 @@ export function SchedulePage() {
     queryFn: () => getMySchedule('week', activeChildId, weekStartYmd),
     enabled: !!activeChildId,
   })
+
+  const isGone = Boolean(isError && error && isNotFound(error))
 
   useEffect(() => {
     if (!isError || !error || !isForbidden(error)) return
@@ -174,12 +178,28 @@ export function SchedulePage() {
       />
 
       <StateWrapper
-        isLoading={isLoading || (user?.role === 'parent' && !activeChildId && isChildrenLoading)}
-        isError={isError}
-        isEmpty={!isLoading && !isError && data.length === 0}
+        isLoading={
+          !parentBlocked &&
+          !isGone &&
+          (isLoading || (user?.role === 'parent' && !activeChildId && isChildrenLoading))
+        }
+        isError={!parentBlocked && !isGone && isError}
+        isEmpty={
+          parentBlocked ||
+          isGone ||
+          (!parentBlocked && !isGone && !isLoading && !isError && data.length === 0)
+        }
         onRetry={refetch}
-        emptyTitle="Нет уроков"
-        emptyDescription="Расписание пока пустое."
+        emptyTitle={
+          parentBlocked ? 'Нет привязанных детей' : isGone ? 'Данные недоступны' : 'Нет уроков'
+        }
+        emptyDescription={
+          parentBlocked
+            ? 'Чтобы видеть расписание, администратор должен привязать ребёнка к вашему аккаунту.'
+            : isGone
+              ? 'Класс могли архивировать или изменили доступ. Обратитесь к администратору школы.'
+              : 'Расписание пока пустое.'
+        }
       >
         <div className="flex flex-col gap-4">
           {weekDays.map((day) => {

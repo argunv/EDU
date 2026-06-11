@@ -53,9 +53,13 @@ vi.mock('@/api/adminUsers', () => ({
   patchAdminUserRole: (...args: unknown[]) => patchAdminUserRoleMock(...args),
 }))
 
-vi.mock('@/api/admin', () => ({
-  getAdminClasses: vi.fn().mockResolvedValue([{ id: 'c1', name: '5А' }]),
-}))
+vi.mock('@/api/admin', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/api/admin')>()
+  return {
+    ...actual,
+    getAdminClasses: vi.fn().mockResolvedValue([{ id: 'c1', name: '5А' }]),
+  }
+})
 
 describe('AdminUsersPage', () => {
   beforeEach(() => {

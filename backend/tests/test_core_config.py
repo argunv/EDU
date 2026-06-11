@@ -37,6 +37,14 @@ def test_validate_production_secrets_skips_non_production(monkeypatch):
     validate_production_secrets()  # не бросает
 
 
+def test_validate_production_secrets_trims_environment(monkeypatch):
+    """Пробелы вокруг ENVIRONMENT=production не должны отключать проверки секретов."""
+    monkeypatch.setattr(config.settings, "environment", "  production  ")
+    monkeypatch.setattr(config.settings, "jwt_secret", "change-me-in-production")
+    with pytest.raises(ValueError, match="JWT_SECRET"):
+        validate_production_secrets()
+
+
 def test_validate_production_secrets_rejects_default_jwt(monkeypatch):
     monkeypatch.setattr(config.settings, "environment", "production")
     monkeypatch.setattr(config.settings, "jwt_secret", "change-me-in-production")

@@ -19,7 +19,7 @@ export function ChildSelectionProvider({ children }: { children: ReactNode }) {
   } = useQuery({
     queryKey: ['me', 'children'],
     queryFn: getMyChildren,
-    enabled: !!user,
+    enabled: user?.role === 'parent',
   })
 
   const [childId, setChildIdState] = useState<string>(() => {
@@ -32,7 +32,7 @@ export function ChildSelectionProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const resolvedChildId = useMemo(() => {
-    if (!childrenList.length) return childId
+    if (!childrenList.length) return ''
     if (!childId || !childrenList.some((c) => c.id === childId)) {
       return childrenList[0]?.id ?? ''
     }

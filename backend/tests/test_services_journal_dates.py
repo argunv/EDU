@@ -1,5 +1,5 @@
 """Unit-тесты для app.services.journal_dates (без БД)."""
-from datetime import date, timedelta
+from datetime import date
 
 import pytest
 from fastapi import HTTPException

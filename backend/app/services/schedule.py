@@ -165,7 +165,9 @@ def check_teacher_schedule_conflicts(
 
         other = (
             db.query(ScheduleSlot)
+            .join(Class, Class.id == ScheduleSlot.class_id)
             .filter(
+                Class.archived.is_(False),
                 ScheduleSlot.shift == shift,
                 ScheduleSlot.day_label == day_label,
                 ScheduleSlot.lesson_number == lesson_number,
@@ -210,6 +212,25 @@ def apply_schedule_changes(body: list[AdminScheduleChange], db: Session) -> None
     При переходе слота в «отменён» отправляет в очередь письма ученикам класса и их родителям.
     Raises HTTPException при неверных id или отсутствии класса/предмета.
     """
+    class_ids_from_request: set[UUID] = set()
+    for ch in body:
+        if ch.key:
+            parsed = parse_schedule_change_key(ch.key)
+            if parsed:
+                class_ids_from_request.add(parsed[0])
+        if ch.slot:
+            try:
+                class_ids_from_request.add(UUID(ch.slot.class_id))
+            except (ValueError, TypeError):
+                pass
+    for cid in class_ids_from_request:
+        c = db.query(Class).filter(Class.id == cid).first()
+        if c is not None and c.archived:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Нельзя изменять расписание архивированного класса",
+            )
+
     classes_touched: set[UUID] = set()
     # Слоты, которые только что стали отменёнными — для уведомления по email
     # (class_id, class_name, subject_name, day_label, time)

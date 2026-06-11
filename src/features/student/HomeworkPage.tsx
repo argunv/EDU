@@ -8,7 +8,7 @@ import { StateWrapper } from '../../components/shared/StateWrapper'
 import { ChildSelector } from './ChildSelector'
 import { useAuth } from '../auth/useAuth'
 import { useChildSelection } from './useChildSelection'
-import { isForbidden } from '../../lib/errors'
+import { isForbidden, isNotFound } from '../../lib/errors'
 import type { HomeworkItem } from '../../types/homework'
 
 export function HomeworkPage() {
@@ -17,12 +17,16 @@ export function HomeworkPage() {
   const { user } = useAuth()
   const { childId, setChildId, children, isChildrenLoading } = useChildSelection()
   const activeChildId = user?.role === 'parent' ? childId : (user?.id ?? '')
+  const parentBlocked =
+    user?.role === 'parent' && !isChildrenLoading && children.length === 0
 
   const { data = [], isLoading, isError, refetch, error } = useQuery<HomeworkItem[]>({
     queryKey: ['me', 'homework', range, activeChildId],
     queryFn: () => getMyHomework(range, activeChildId),
     enabled: !!activeChildId,
   })
+
+  const isGone = Boolean(isError && error && isNotFound(error))
 
   useEffect(() => {
     if (!isError || !error || !isForbidden(error)) return
@@ -60,12 +64,28 @@ export function HomeworkPage() {
       </div>
 
       <StateWrapper
-        isLoading={isLoading || (user?.role === 'parent' && !activeChildId && isChildrenLoading)}
-        isError={isError}
-        isEmpty={!isLoading && !isError && data.length === 0}
+        isLoading={
+          !parentBlocked &&
+          !isGone &&
+          (isLoading || (user?.role === 'parent' && !activeChildId && isChildrenLoading))
+        }
+        isError={!parentBlocked && !isGone && isError}
+        isEmpty={
+          parentBlocked ||
+          isGone ||
+          (!parentBlocked && !isGone && !isLoading && !isError && data.length === 0)
+        }
         onRetry={refetch}
-        emptyTitle="Нет заданий"
-        emptyDescription="Домашних заданий на этот период нет."
+        emptyTitle={
+          parentBlocked ? 'Нет привязанных детей' : isGone ? 'Данные недоступны' : 'Нет заданий'
+        }
+        emptyDescription={
+          parentBlocked
+            ? 'Чтобы видеть задания, администратор должен привязать ребёнка к вашему аккаунту.'
+            : isGone
+              ? 'Класс могли архивировать или изменили доступ. Обратитесь к администратору школы.'
+              : 'Домашних заданий на этот период нет.'
+        }
       >
         <div className="flex flex-col gap-3">
           {items.map((item) => {

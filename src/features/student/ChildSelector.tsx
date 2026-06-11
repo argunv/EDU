@@ -3,10 +3,41 @@ import { useChildSelection } from './useChildSelection'
 
 export function ChildSelector() {
   const { user } = useAuth()
-  const { childId, setChildId, children } = useChildSelection()
+  const { childId, setChildId, children, isChildrenLoading, isChildrenError } = useChildSelection()
 
   if (!user || user.role !== 'parent') {
     return null
+  }
+
+  if (isChildrenError) {
+    return (
+      <div
+        className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"
+        role="alert"
+      >
+        Не удалось загрузить список детей. Проверьте соединение и обновите страницу.
+      </div>
+    )
+  }
+
+  if (isChildrenLoading) {
+    return (
+      <div className="rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-600">
+        Загрузка списка детей…
+      </div>
+    )
+  }
+
+  if (children.length === 0) {
+    return (
+      <div
+        className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"
+        role="status"
+      >
+        Нет привязанных детей. Обратитесь к администратору школы, чтобы привязать ребёнка к вашему
+        аккаунту.
+      </div>
+    )
   }
 
   return (

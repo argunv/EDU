@@ -51,7 +51,7 @@ export function BottomNav({ role }: BottomNavProps) {
             <button
               key={item.path}
               type="button"
-              onClick={() => navigate(item.path, { flushSync: true })}
+              onClick={() => navigate(item.path)}
               className={`flex min-h-14 flex-1 flex-col items-center justify-center gap-1 rounded-xl border text-sm font-semibold ${
                 isActive
                   ? 'border-slate-900 bg-slate-900 text-white'

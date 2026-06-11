@@ -1,8 +1,10 @@
 from datetime import date
 from uuid import UUID
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
+from app.models.class_model import Class
 from app.models.role_profiles import (
     ClassEnrollment,
     ParentStudentLink,
@@ -19,7 +21,10 @@ def get_active_student_ids_for_class(db: Session, class_id: UUID) -> list[UUID]:
         .filter(
             ClassEnrollment.class_id == class_id,
             ClassEnrollment.start_date <= today,
-            (ClassEnrollment.end_date.is_(None) | (ClassEnrollment.end_date >= today)),
+            or_(
+                ClassEnrollment.end_date.is_(None),
+                ClassEnrollment.end_date >= today,
+            ),
         )
         .all()
     ]
@@ -45,6 +50,19 @@ def get_teacher_class_ids(db: Session, teacher_user_id: UUID) -> list[UUID]:
         .all()
     ]
     return ids
+
+
+def get_teacher_non_archived_class_ids(db: Session, teacher_user_id: UUID) -> list[UUID]:
+    """Назначения учителя только по неархивным классам (канон для проверок доступа)."""
+    raw = get_teacher_class_ids(db, teacher_user_id)
+    if not raw:
+        return []
+    return [
+        row[0]
+        for row in db.query(Class.id)
+        .filter(Class.id.in_(raw), Class.archived.is_(False))
+        .all()
+    ]
 
 
 def get_user_roles(db: Session, user_id: UUID) -> set[str]:
@@ -75,7 +93,10 @@ def get_active_enrollment(
         .filter(
             ClassEnrollment.student_user_id == student_user_id,
             ClassEnrollment.start_date <= dt,
-            (ClassEnrollment.end_date.is_(None) | (ClassEnrollment.end_date >= dt)),
+            or_(
+                ClassEnrollment.end_date.is_(None),
+                ClassEnrollment.end_date >= dt,
+            ),
         )
         .order_by(ClassEnrollment.start_date.desc())
         .first()
@@ -97,9 +118,9 @@ def ensure_no_enrollment_overlap(
     # Overlap condition for [start,end] with open-ended periods.
     q = q.filter(
         ClassEnrollment.start_date <= (end_date or date.max),
-        (
-            (ClassEnrollment.end_date.is_(None))
-            | (ClassEnrollment.end_date >= start_date)
+        or_(
+            ClassEnrollment.end_date.is_(None),
+            ClassEnrollment.end_date >= start_date,
         ),
     )
     if q.first() is not None:

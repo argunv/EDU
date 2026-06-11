@@ -6,6 +6,9 @@ from fastapi.testclient import TestClient
 from app.models.lesson import Lesson
 from app.models.schedule import ScheduleSlot
 from app.models.grade import Grade
+from app.models.user import User
+from app.models.role_profiles import ClassEnrollment, UserRole
+from app.services.auth import hash_password
 
 WEEKDAY_LABELS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
 
@@ -96,7 +99,7 @@ def test_teacher_lessons_from_schedule(client: TestClient, teacher_headers, sche
     data = res.json()
     assert isinstance(data, list)
     assert len(data) >= 1
-    assert any(l["subject"] == "Математика" for l in data)
+    assert any(row["subject"] == "Математика" for row in data)
 
 
 def test_teacher_lessons_unauthorized(client: TestClient):
@@ -141,7 +144,6 @@ def test_teacher_submit_grades(client: TestClient, teacher_headers, lesson_today
 def test_teacher_submit_grades_with_topic_and_homework(
     client: TestClient, teacher_headers, lesson_today, student_user, db
 ):
-    from app.models.lesson import Lesson
     from app.models.homework import Homework
 
     res = client.post(
@@ -168,6 +170,75 @@ def test_teacher_submit_grades_with_topic_and_homework(
     ).first()
     assert hw is not None
     assert hw.text == "ДЗ: стр. 10"
+
+
+def test_teacher_submit_grades_archived_class_400(
+    client: TestClient, teacher_headers, lesson_today, class_1a, db
+):
+    """Архивный класс: нельзя менять тему/ДЗ/оценки через POST /lessons/grades."""
+    class_1a.archived = True
+    db.add(class_1a)
+    db.commit()
+    res = client.post(
+        "/teacher/lessons/grades",
+        json={"lesson_id": str(lesson_today.id), "entries": []},
+        headers=teacher_headers,
+    )
+    assert res.status_code == 400
+    assert "архиве" in (res.json().get("detail") or "").lower()
+
+
+def test_teacher_submit_grades_student_not_in_lesson_class_403(
+    client: TestClient, teacher_headers, lesson_today, db, class_9a
+):
+    """Ученик из другого класса не может попасть в entries урока 1A."""
+    outsider = User(
+        id=uuid.uuid4(),
+        email="student9a@example.com",
+        password_hash=hash_password("x"),
+        name="NineA",
+        role="student",
+        class_id=class_9a.id,
+    )
+    db.add(outsider)
+    db.commit()
+    db.add(UserRole(user_id=outsider.id, role="student"))
+    db.commit()
+    db.add(ClassEnrollment(student_user_id=outsider.id, class_id=class_9a.id))
+    db.commit()
+
+    res = client.post(
+        "/teacher/lessons/grades",
+        json={
+            "lesson_id": str(lesson_today.id),
+            "entries": [{"student_id": str(outsider.id), "attendance": "present", "grade": 5}],
+        },
+        headers=teacher_headers,
+    )
+    assert res.status_code == 403
+    assert "не из этого класса" in (res.json().get("detail") or "").lower()
+
+
+def test_teacher_save_grade_archived_class_400(
+    client: TestClient, teacher_headers, student_user, schedule_slot_today, class_1a, subject_math, db
+):
+    class_1a.archived = True
+    db.add(class_1a)
+    db.commit()
+    today = date.today().isoformat()
+    res = client.post(
+        "/teacher/journal/grade",
+        json={
+            "class_id": str(class_1a.id),
+            "subject_id": str(subject_math.id),
+            "student_id": str(student_user.id),
+            "date_iso": today,
+            "value": 5,
+        },
+        headers=teacher_headers,
+    )
+    assert res.status_code == 400
+    assert "архиве" in (res.json().get("detail") or "").lower()
 
 
 def test_teacher_journal(client: TestClient, teacher_headers, class_1a, student_user):

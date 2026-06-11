@@ -7,7 +7,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 
 from app.models.user import User
-from app.services.relation_access import get_user_roles
+from app.services.relation_access import get_user_roles, has_user_role
 
 
 def get_db() -> Generator[Session, None, None]:
@@ -20,7 +20,6 @@ def get_db() -> Generator[Session, None, None]:
         db.close()
 
 
-security = HTTPBearer(auto_error=False)
 optional_bearer = HTTPBearer(auto_error=False)
 
 
@@ -50,6 +49,7 @@ def get_current_user_optional(
 
 
 def get_current_user(
+    db: Annotated[Session, Depends(get_db)],
     user: Annotated[User | None, Depends(get_current_user_optional)],
 ) -> User:
     """Require authenticated user. Raises 401 if not authenticated."""
@@ -57,6 +57,16 @@ def get_current_user(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Not authenticated",
+        )
+    if user.role == "rejected" or has_user_role(db, user.id, "rejected"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Доступ отклонён",
+        )
+    if user.role == "pending" or has_user_role(db, user.id, "pending"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Учётная запись ожидает одобрения администратором",
         )
     return user
 
