@@ -18,7 +18,7 @@ COPY backend/scripts/ensure_test_db.py /app/scripts/ensure_test_db.py
 # Миграции и pytest выполняются в command сервиса test
 
 # ========== WEB (frontend SPA) ==========
-FROM node:22.12.0-alpine AS web-builder
+FROM node:26.3.0-alpine AS web-builder
 WORKDIR /app
 ENV VITE_API_URL=/api
 COPY package.json package-lock.json ./
