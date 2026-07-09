@@ -3,6 +3,7 @@ import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } fro
 import { JournalAverageCell } from './JournalAverageCell'
 import { JournalCell } from './JournalCell'
 import { JournalHeaderCell } from './JournalHeaderCell'
+import { getFillerColumnCount } from './journalLayout'
 import { type JournalData, type JournalGrade } from '../../../types/journal'
 
 type JournalTableProps = {
@@ -29,22 +30,6 @@ const NAME_COLUMN_MAX_WIDTH_PX = 420
 const NAME_COLUMN_PX_PER_CHAR = 8
 const NAME_COLUMN_PADDING_PX = 32
 const AVERAGE_COLUMN_WIDTH_PX = 56
-
-export function getFillerColumnCount(
-  containerWidth: number,
-  nameColumnWidthPx: number,
-  dateColumnCount: number,
-  isFewDates: boolean,
-): number {
-  if (containerWidth <= 0 || isFewDates) return 0
-  const contentWidth =
-    nameColumnWidthPx +
-    dateColumnCount * DATE_COLUMN_MIN_WIDTH_PX +
-    AVERAGE_COLUMN_WIDTH_PX
-  const remaining = containerWidth - contentWidth
-  if (remaining < DATE_COLUMN_MIN_WIDTH_PX) return 0
-  return Math.ceil(remaining / DATE_COLUMN_MIN_WIDTH_PX)
-}
 
 function JournalFillerHeaderCell() {
   return (

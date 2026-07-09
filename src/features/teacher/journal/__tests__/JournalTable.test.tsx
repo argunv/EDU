@@ -1,7 +1,8 @@
 import { act, fireEvent, render, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { getFillerColumnCount, JournalTable } from '../JournalTable'
+import { getFillerColumnCount } from '../journalLayout'
+import { JournalTable } from '../JournalTable'
 import { type JournalData } from '../../../../types/journal'
 
 function makeJournalData(dates: string[]): JournalData {

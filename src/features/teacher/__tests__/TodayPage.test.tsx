@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { formatSelectedScheduleDay } from '../TodayPage'
+import { formatSelectedScheduleDay } from '../scheduleDayFormat'
 
 describe('formatSelectedScheduleDay', () => {
   afterEach(() => {
