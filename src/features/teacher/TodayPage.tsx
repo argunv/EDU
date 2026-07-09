@@ -6,6 +6,7 @@ import { PageHeader } from '../../components/layout/PageHeader'
 import { LessonCard } from '../../components/shared/LessonCard'
 import { StateWrapper } from '../../components/shared/StateWrapper'
 import { WeekNavigator } from '../me/components/WeekNavigator'
+import { formatSelectedScheduleDay } from './scheduleDayFormat'
 
 const TEACHER_SCHEDULE_STORAGE_KEY = 'teacher-schedule'
 
@@ -54,25 +55,6 @@ const WEEKDAY_OPTIONS = [
   { label: 'Пт', index: 4 },
 ] as const
 
-/** День недели и дата выбранного учебного дня (как в сетке Пн–Пт). Время — только если это сегодня. */
-function formatSelectedScheduleDay(weekStart: Date, dayIndex: number): string {
-  const d = new Date(weekStart)
-  d.setDate(weekStart.getDate() + dayIndex)
-  const now = new Date()
-  const isToday =
-    d.getFullYear() === now.getFullYear() &&
-    d.getMonth() === now.getMonth() &&
-    d.getDate() === now.getDate()
-  const formatter = new Intl.DateTimeFormat('ru-RU', {
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-    ...(isToday ? { hour: '2-digit', minute: '2-digit' } : {}),
-  })
-  const value = formatter.format(d)
-  return value.charAt(0).toUpperCase() + value.slice(1)
-}
-
 function getDefaultDayIndex(): 0 | 1 | 2 | 3 | 4 {
   const today = new Date().getDay()
   if (today === 0 || today === 6) return 0
@@ -110,6 +92,12 @@ export function TodayPage() {
   const [dayIndex, setDayIndex] = useState<0 | 1 | 2 | 3 | 4>(
     stored ? (stored.dayIndex as 0 | 1 | 2 | 3 | 4) : defaultDay
   )
+  const [now, setNow] = useState(() => new Date())
+
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(new Date()), 60_000)
+    return () => window.clearInterval(id)
+  }, [])
 
   useEffect(() => {
     saveStoredSchedule(dayIndex, weekOffset)
@@ -146,8 +134,8 @@ export function TodayPage() {
   }, [weekOffset])
 
   const scheduleDayTitle = useMemo(
-    () => formatSelectedScheduleDay(weekStart, dayIndex),
-    [weekStart, dayIndex]
+    () => formatSelectedScheduleDay(weekStart, dayIndex, now),
+    [weekStart, dayIndex, now],
   )
 
   return (

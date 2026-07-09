@@ -297,6 +297,7 @@ resolved AS (
     gen_random_uuid() AS id,
     c.id AS class_id,
     s.id AS subject_id,
+    u.id AS teacher_id,
     p.day_label,
     p.lesson_number,
     t.time,
@@ -317,8 +318,139 @@ resolved AS (
   JOIN times_arr t ON t.lesson_number = p.lesson_number
 )
 
-INSERT INTO schedule_slots (id, class_id, subject_id, day_label, lesson_number, time, shift, teacher_name, room, note, is_cancelled)
-SELECT * FROM resolved;
+INSERT INTO schedule_slots (id, class_id, subject_id, teacher_id, day_label, lesson_number, time, shift, teacher_name, room, note, is_cancelled)
+SELECT id, class_id, subject_id, teacher_id, day_label, lesson_number, time, shift, teacher_name, room, note, is_cancelled FROM resolved;
+
+-- Демо-классы: гарантируем слот расписания для каждой пары (класс, предмет) из class_subjects.
+-- Без этого часть предметов (напр. «Русский язык» в 5А) не попадает в plan из-за формулы (day+lesson+class) % 10.
+WITH times_arr AS (
+  SELECT * FROM (VALUES (1,'08:30'::varchar(10)),(2,'09:25'),(3,'10:20'),(4,'11:30'),(5,'12:25'),(6,'13:20')) AS t(lesson_number, time)
+),
+days AS (
+  SELECT unnest(ARRAY['Понедельник','Вторник','Среда','Четверг','Пятница']) AS day_label,
+         unnest(ARRAY[0,1,2,3,4]) AS day_idx
+),
+lesson_nums AS (SELECT generate_series(1, 6) AS lesson_number),
+allowed_slots AS (
+  SELECT d.day_label, d.day_idx, n.lesson_number
+  FROM days d
+  JOIN lesson_nums n ON (
+    (d.day_label IN ('Понедельник','Вторник','Среда') AND n.lesson_number BETWEEN 1 AND 6) OR
+    (d.day_label = 'Четверг' AND n.lesson_number BETWEEN 1 AND 5) OR
+    (d.day_label = 'Пятница' AND n.lesson_number BETWEEN 1 AND 4)
+  )
+),
+demo_class_ids AS (
+  SELECT id FROM classes WHERE name IN ('5А', '5Б', '9А')
+),
+missing_cs AS (
+  SELECT
+    cs.class_id,
+    cs.subject_id,
+    cs.teacher_id,
+    c.shift,
+    u.name AS teacher_name,
+    row_number() OVER (PARTITION BY cs.class_id ORDER BY s.name) AS subj_rn
+  FROM class_subjects cs
+  JOIN demo_class_ids dc ON dc.id = cs.class_id
+  JOIN classes c ON c.id = cs.class_id
+  JOIN users u ON u.id = cs.teacher_id
+  JOIN subjects s ON s.id = cs.subject_id
+  WHERE NOT EXISTS (
+    SELECT 1 FROM schedule_slots ss
+    WHERE ss.class_id = cs.class_id AND ss.subject_id = cs.subject_id
+  )
+),
+slot_candidates AS (
+  SELECT
+    m.class_id,
+    m.subject_id,
+    m.teacher_id,
+    m.shift,
+    m.teacher_name,
+    d.day_label,
+    ln.lesson_number,
+    t.time,
+    row_number() OVER (
+      PARTITION BY m.class_id, m.subject_id
+      ORDER BY d.day_idx, ln.lesson_number
+    ) AS pick_rn
+  FROM missing_cs m
+  CROSS JOIN days d
+  CROSS JOIN lesson_nums ln
+  JOIN allowed_slots a ON a.day_label = d.day_label AND a.lesson_number = ln.lesson_number
+  JOIN times_arr t ON t.lesson_number = ln.lesson_number
+  WHERE NOT EXISTS (
+    SELECT 1 FROM schedule_slots ss
+    WHERE ss.class_id = m.class_id
+      AND ss.day_label = d.day_label
+      AND ss.lesson_number = ln.lesson_number
+  )
+)
+INSERT INTO schedule_slots (id, class_id, subject_id, teacher_id, day_label, lesson_number, time, shift, teacher_name, room, note, is_cancelled)
+SELECT
+  gen_random_uuid(),
+  class_id,
+  subject_id,
+  teacher_id,
+  day_label,
+  lesson_number,
+  time,
+  shift,
+  teacher_name,
+  '101',
+  NULL,
+  false
+FROM slot_candidates
+WHERE pick_rn = 1;
+
+-- Demo schedule patch: в демо-классах заменяем один слот, если предмет из class_subjects не попал в расписание.
+WITH times_arr AS (
+  SELECT * FROM (VALUES (1,'08:30'::varchar(10)),(2,'09:25'),(3,'10:20'),(4,'11:30'),(5,'12:25'),(6,'13:20')) AS t(lesson_number, time)
+),
+patches AS (
+  SELECT * FROM (VALUES
+    ('5А', 'Русский язык', 'Понедельник', 1, 't.rus.1@school.abh'),
+    ('5А', 'Физическая культура', 'Пятница', 4, 't.pe.1@school.abh'),
+    ('5Б', 'Русский язык', 'Вторник', 1, 't.rus.2@school.abh'),
+    ('9А', 'Русский язык', 'Среда', 1, 't.rus.1@school.abh')
+  ) AS t(class_name, subject_name, day_label, lesson_number, teacher_email)
+),
+resolved AS (
+  SELECT
+    c.id AS class_id,
+    s.id AS subject_id,
+    u.id AS teacher_id,
+    p.day_label,
+    p.lesson_number,
+    t.time,
+    c.shift,
+    u.name AS teacher_name
+  FROM patches p
+  JOIN classes c ON c.name = p.class_name
+  JOIN subjects s ON s.name = p.subject_name
+  JOIN users u ON u.email = p.teacher_email
+  JOIN times_arr t ON t.lesson_number = p.lesson_number
+  WHERE EXISTS (
+    SELECT 1 FROM class_subjects cs
+    WHERE cs.class_id = c.id AND cs.subject_id = s.id
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM schedule_slots ss
+    WHERE ss.class_id = c.id AND ss.subject_id = s.id
+  )
+),
+cleared AS (
+  DELETE FROM schedule_slots ss
+  USING resolved r
+  WHERE ss.class_id = r.class_id
+    AND ss.day_label = r.day_label
+    AND ss.lesson_number = r.lesson_number
+  RETURNING 1
+)
+INSERT INTO schedule_slots (id, class_id, subject_id, teacher_id, day_label, lesson_number, time, shift, teacher_name, room, note, is_cancelled)
+SELECT gen_random_uuid(), class_id, subject_id, teacher_id, day_label, lesson_number, time, shift, teacher_name, '101', NULL, false
+FROM resolved;
 
 -- ========== Lessons (даты за 1 семестр 2026-2026 для столбцов журнала и оценок) ==========
 -- Семестр 1: 2026-09-01 .. 2026-01-31. Создаём уроки на несколько дат по каждому (class, subject).
@@ -394,6 +526,43 @@ grades_s2 AS (
 INSERT INTO grades (id, student_id, subject_id, date, value)
 SELECT gen_random_uuid(), student_id, subject_id, grade_date, value FROM grades_s2;
 
+-- Демо-оценки в текущем 14-дневном окне журнала (относительно CURRENT_DATE).
+WITH demo_class AS (
+  SELECT '11111111-1111-1111-1111-111111111101'::uuid AS class_id
+),
+demo_dates AS (
+  SELECT d::date AS grade_date
+  FROM generate_series(CURRENT_DATE - 13, CURRENT_DATE, interval '1 day') AS d
+  WHERE EXTRACT(ISODOW FROM d) BETWEEN 1 AND 5
+),
+demo_students AS (
+  SELECT u.id AS student_id
+  FROM users u
+  CROSS JOIN demo_class dc
+  WHERE u.role = 'student' AND u.class_id = dc.class_id
+),
+demo_subjects AS (
+  SELECT id AS subject_id
+  FROM subjects
+  WHERE name IN ('Русский язык', 'Литература', 'Математика')
+)
+INSERT INTO grades (id, student_id, subject_id, date, value)
+SELECT
+  gen_random_uuid(),
+  ds.student_id,
+  sub.subject_id,
+  dd.grade_date,
+  (ARRAY['3', '4', '5'])[1 + (abs(hashtext(ds.student_id::text || sub.subject_id::text || dd.grade_date::text)) % 3)]
+FROM demo_students ds
+CROSS JOIN demo_subjects sub
+CROSS JOIN demo_dates dd
+WHERE NOT EXISTS (
+  SELECT 1 FROM grades g
+  WHERE g.student_id = ds.student_id
+    AND g.subject_id = sub.subject_id
+    AND g.date = dd.grade_date
+);
+
 -- ========== Homework: на сегодня и неделю по предметам для всех классов ==========
 WITH classes_subjects AS (
   SELECT DISTINCT class_id, subject_id FROM schedule_slots
@@ -446,6 +615,87 @@ pairs AS (
 )
 INSERT INTO parent_children (id, parent_id, child_id)
 SELECT gen_random_uuid(), parent_id, child_id FROM pairs
+ON CONFLICT (parent_id, child_id) DO NOTHING;
+
+-- ========== Demo aliases (@test.ru) — удобные логины для README/demo ==========
+-- bcrypt("123456") — тот же hash, что и у остальных seed-пользователей.
+INSERT INTO users (id, email, password_hash, name, role, class_id)
+VALUES
+  ('33333333-3333-3333-3333-333333333401'::uuid, 'admin@test.ru',
+   '$2b$12$0QBDDybkhTa3zLMQERiV9OpJ5Ci/CR15vfzB1DqJRBKy2KJeJkl6u', 'Администратор (демо)', 'admin', NULL),
+  ('33333333-3333-3333-3333-333333333402'::uuid, 'teacher@test.ru',
+   '$2b$12$0QBDDybkhTa3zLMQERiV9OpJ5Ci/CR15vfzB1DqJRBKy2KJeJkl6u', 'Камкия Инга Рауфовна', 'teacher', NULL),
+  ('33333333-3333-3333-3333-333333333403'::uuid, 'user@test.ru',
+   '$2b$12$0QBDDybkhTa3zLMQERiV9OpJ5Ci/CR15vfzB1DqJRBKy2KJeJkl6u', 'Шамба Астамур (демо)', 'student',
+   '11111111-1111-1111-1111-111111111101'::uuid),
+  ('33333333-3333-3333-3333-333333333404'::uuid, 'parent@test.ru',
+   '$2b$12$0QBDDybkhTa3zLMQERiV9OpJ5Ci/CR15vfzB1DqJRBKy2KJeJkl6u', 'Родитель (демо)', 'parent', NULL),
+  ('33333333-3333-3333-3333-333333333405'::uuid, 'pending@test.ru',
+   '$2b$12$0QBDDybkhTa3zLMQERiV9OpJ5Ci/CR15vfzB1DqJRBKy2KJeJkl6u', 'Заявка (демо)', 'pending', NULL)
+ON CONFLICT (email) DO UPDATE SET
+  password_hash = EXCLUDED.password_hash,
+  name = EXCLUDED.name,
+  role = EXCLUDED.role,
+  class_id = EXCLUDED.class_id;
+
+INSERT INTO students (id, user_id, class_id, name, class_name)
+SELECT gen_random_uuid(), u.id, u.class_id, u.name, c.name
+FROM users u
+JOIN classes c ON c.id = u.class_id
+WHERE u.email = 'user@test.ru'
+  AND NOT EXISTS (SELECT 1 FROM students s WHERE s.user_id = u.id);
+
+INSERT INTO teacher_subjects (id, teacher_id, subject_id)
+SELECT gen_random_uuid(), te.id, ts.subject_id
+FROM users te
+JOIN users tr ON tr.email = 't.rus.1@school.abh'
+JOIN teacher_subjects ts ON ts.teacher_id = tr.id
+WHERE te.email = 'teacher@test.ru'
+  AND NOT EXISTS (
+    SELECT 1 FROM teacher_subjects x
+    WHERE x.teacher_id = te.id AND x.subject_id = ts.subject_id
+  );
+
+INSERT INTO teacher_classes (id, teacher_id, class_id)
+SELECT gen_random_uuid(), te.id, tc.class_id
+FROM users te
+JOIN users tr ON tr.email = 't.rus.1@school.abh'
+JOIN teacher_classes tc ON tc.teacher_id = tr.id
+WHERE te.email = 'teacher@test.ru'
+  AND NOT EXISTS (
+    SELECT 1 FROM teacher_classes x
+    WHERE x.teacher_id = te.id AND x.class_id = tc.class_id
+  );
+
+-- teacher@test.ru ведёт 5А; t.rus.1@school.abh сохраняет 9А и остальные назначения.
+UPDATE class_subjects cs
+SET teacher_id = (SELECT id FROM users WHERE email = 'teacher@test.ru')
+FROM classes c
+WHERE cs.class_id = c.id
+  AND c.name = '5А'
+  AND cs.teacher_id = (SELECT id FROM users WHERE email = 't.rus.1@school.abh');
+
+UPDATE schedule_slots ss
+SET
+  teacher_id = te.id,
+  teacher_name = te.name
+FROM classes c, users te
+WHERE ss.class_id = c.id
+  AND c.name = '5А'
+  AND te.email = 'teacher@test.ru';
+
+INSERT INTO parent_children (id, parent_id, child_id)
+SELECT gen_random_uuid(), par.id, ch.id
+FROM users par
+CROSS JOIN LATERAL (
+  SELECT u.id
+  FROM users u
+  WHERE u.role = 'student'
+    AND u.class_id = '11111111-1111-1111-1111-111111111101'::uuid
+  ORDER BY u.email
+  LIMIT 2
+) ch(id)
+WHERE par.email = 'parent@test.ru'
 ON CONFLICT (parent_id, child_id) DO NOTHING;
 
 -- Проверка пересечений учителей (должно быть пусто)

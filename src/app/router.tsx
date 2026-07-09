@@ -128,27 +128,27 @@ export const router = createBrowserRouter([
               },
               {
                 path: 'classes',
-                element: withSuspense(<ClassesPage />),
+                element: <ClassesPage />,
               },
               {
                 path: 'subjects',
-                element: withSuspense(<AdminSubjectsPage />),
+                element: <AdminSubjectsPage />,
               },
               {
                 path: 'users',
-                element: withSuspense(<AdminUsersPage />),
+                element: <AdminUsersPage />,
               },
               {
                 path: 'schedule',
-                element: withSuspense(<AdminSchedulePage />),
+                element: <AdminSchedulePage />,
               },
               {
                 path: 'journal/:classId/:subjectId',
-                element: withSuspense(<JournalPage />),
+                element: <JournalPage />,
               },
               {
                 path: 'journal/:classId',
-                element: withSuspense(<JournalPage />),
+                element: <JournalPage />,
               },
             ],
           },

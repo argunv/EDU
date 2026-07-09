@@ -3,7 +3,8 @@ from datetime import timedelta
 from uuid import UUID
 
 import bcrypt
-from jose import JWTError, jwt
+import jwt
+from jwt.exceptions import PyJWTError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -41,7 +42,7 @@ def decode_access_token(token: str) -> dict | None:
         if payload.get("type") != "access":
             return None
         return payload
-    except JWTError:
+    except PyJWTError:
         return None
 
 

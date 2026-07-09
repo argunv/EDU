@@ -1,7 +1,7 @@
 import uuid
 from datetime import timedelta
 
-from jose import jwt
+import jwt
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
