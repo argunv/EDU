@@ -55,14 +55,20 @@ const WEEKDAY_OPTIONS = [
 ] as const
 
 /** День недели и дата выбранного учебного дня (как в сетке Пн–Пт). Время — только если это сегодня. */
-function formatSelectedScheduleDay(weekStart: Date, dayIndex: number): string {
+export function formatSelectedScheduleDay(
+  weekStart: Date,
+  dayIndex: number,
+  now: Date = new Date(),
+): string {
   const d = new Date(weekStart)
   d.setDate(weekStart.getDate() + dayIndex)
-  const now = new Date()
   const isToday =
     d.getFullYear() === now.getFullYear() &&
     d.getMonth() === now.getMonth() &&
     d.getDate() === now.getDate()
+  if (isToday) {
+    d.setHours(now.getHours(), now.getMinutes(), 0, 0)
+  }
   const formatter = new Intl.DateTimeFormat('ru-RU', {
     weekday: 'long',
     day: 'numeric',
@@ -71,6 +77,16 @@ function formatSelectedScheduleDay(weekStart: Date, dayIndex: number): string {
   })
   const value = formatter.format(d)
   return value.charAt(0).toUpperCase() + value.slice(1)
+}
+
+function isSelectedScheduleDayToday(weekStart: Date, dayIndex: number, now: Date): boolean {
+  const d = new Date(weekStart)
+  d.setDate(weekStart.getDate() + dayIndex)
+  return (
+    d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate()
+  )
 }
 
 function getDefaultDayIndex(): 0 | 1 | 2 | 3 | 4 {
@@ -110,6 +126,7 @@ export function TodayPage() {
   const [dayIndex, setDayIndex] = useState<0 | 1 | 2 | 3 | 4>(
     stored ? (stored.dayIndex as 0 | 1 | 2 | 3 | 4) : defaultDay
   )
+  const [now, setNow] = useState(() => new Date())
 
   useEffect(() => {
     saveStoredSchedule(dayIndex, weekOffset)
@@ -145,9 +162,21 @@ export function TodayPage() {
     return base
   }, [weekOffset])
 
+  const selectedDayIsToday = useMemo(
+    () => isSelectedScheduleDayToday(weekStart, dayIndex, now),
+    [weekStart, dayIndex, now],
+  )
+
+  useEffect(() => {
+    if (!selectedDayIsToday) return
+    setNow(new Date())
+    const id = window.setInterval(() => setNow(new Date()), 60_000)
+    return () => window.clearInterval(id)
+  }, [selectedDayIsToday])
+
   const scheduleDayTitle = useMemo(
-    () => formatSelectedScheduleDay(weekStart, dayIndex),
-    [weekStart, dayIndex]
+    () => formatSelectedScheduleDay(weekStart, dayIndex, now),
+    [weekStart, dayIndex, now],
   )
 
   return (
