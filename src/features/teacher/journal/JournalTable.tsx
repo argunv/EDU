@@ -30,6 +30,50 @@ const NAME_COLUMN_PX_PER_CHAR = 8
 const NAME_COLUMN_PADDING_PX = 32
 const AVERAGE_COLUMN_WIDTH_PX = 56
 
+export function getFillerColumnCount(
+  containerWidth: number,
+  nameColumnWidthPx: number,
+  dateColumnCount: number,
+  isFewDates: boolean,
+): number {
+  if (containerWidth <= 0 || isFewDates) return 0
+  const contentWidth =
+    nameColumnWidthPx +
+    dateColumnCount * DATE_COLUMN_MIN_WIDTH_PX +
+    AVERAGE_COLUMN_WIDTH_PX
+  const remaining = containerWidth - contentWidth
+  if (remaining < DATE_COLUMN_MIN_WIDTH_PX) return 0
+  return Math.ceil(remaining / DATE_COLUMN_MIN_WIDTH_PX)
+}
+
+function JournalFillerHeaderCell() {
+  return (
+    <th
+      aria-hidden="true"
+      className="h-12 border-b border-r border-slate-200 bg-white px-1 py-1"
+      style={{
+        width: DATE_COLUMN_MIN_WIDTH_PX,
+        minWidth: DATE_COLUMN_MIN_WIDTH_PX,
+        maxWidth: DATE_COLUMN_MIN_WIDTH_PX,
+      }}
+    />
+  )
+}
+
+function JournalFillerCell({ rowBg }: { rowBg: string }) {
+  return (
+    <td
+      aria-hidden="true"
+      className={`pointer-events-none h-12 border-r border-slate-200 ${rowBg}`}
+      style={{
+        width: DATE_COLUMN_MIN_WIDTH_PX,
+        minWidth: DATE_COLUMN_MIN_WIDTH_PX,
+        maxWidth: DATE_COLUMN_MIN_WIDTH_PX,
+      }}
+    />
+  )
+}
+
 function formatHeaderLabels(dates: string[]) {
   const dayFormatter = new Intl.DateTimeFormat('ru-RU', { day: 'numeric' })
   const monthFormatter = new Intl.DateTimeFormat('ru-RU', { month: 'short' })
@@ -83,6 +127,7 @@ export function JournalTable({
   const [isOverflowing, setIsOverflowing] = useState(false)
   const [canScrollLeft, setCanScrollLeft] = useState(false)
   const [canScrollRight, setCanScrollRight] = useState(false)
+  const [containerWidth, setContainerWidth] = useState(0)
   const leftEdgeFiredRef = useRef(false)
 
   const headerLabels = useMemo(() => formatHeaderLabels(data.dates), [data.dates])
@@ -99,6 +144,10 @@ export function JournalTable({
       Math.max(NAME_COLUMN_MIN_WIDTH_PX, fromContent)
     )
   }, [data.students])
+  const fillerColumnCount = useMemo(
+    () => getFillerColumnCount(containerWidth, nameColumnWidthPx, data.dates.length, isFewDates),
+    [containerWidth, nameColumnWidthPx, data.dates.length, isFewDates],
+  )
   const todayISO = useMemo(
     () =>
       new Date().getFullYear() +
@@ -136,6 +185,7 @@ export function JournalTable({
   const updateScrollState = useCallback(() => {
     const container = scrollRef.current
     if (!container) return
+    setContainerWidth(container.clientWidth)
     const sl = container.scrollLeft
     const hasOverflow = container.scrollWidth > container.clientWidth + 1
     setIsOverflowing(hasOverflow)
@@ -206,7 +256,7 @@ export function JournalTable({
       container.removeEventListener('scroll', handleScroll)
       window.removeEventListener('resize', handleResize)
     }
-  }, [data.dates.length, data.students.length, updateScrollState])
+  }, [data.dates.length, data.students.length, fillerColumnCount, updateScrollState])
 
   useEffect(() => {
     if (prependedColumnsCount <= 0 || !scrollRef.current || !onScrollPositionRestored) return
@@ -412,6 +462,9 @@ export function JournalTable({
                 }}
               />
             ))}
+            {Array.from({ length: fillerColumnCount }, (_, index) => (
+              <col key={`filler-col-${index}`} style={{ width: `${DATE_COLUMN_MIN_WIDTH_PX}px` }} />
+            ))}
             <col style={{ width: `${AVERAGE_COLUMN_WIDTH_PX}px` }} />
           </colgroup>
           <thead className="sticky top-0 z-20 bg-white shadow-sm">
@@ -434,6 +487,9 @@ export function JournalTable({
                   monthLabel={header.monthLabel}
                   flexible={isFewDates}
                 />
+              ))}
+              {Array.from({ length: fillerColumnCount }, (_, index) => (
+                <JournalFillerHeaderCell key={`filler-header-${index}`} />
               ))}
               <th className="sticky right-0 z-20 border-b border-l border-slate-200 bg-white px-2 py-2 text-xs font-semibold text-red-600">
                 <div className="flex h-16 items-center justify-center">
@@ -515,6 +571,9 @@ export function JournalTable({
                       </td>
                     )
                   })}
+                  {Array.from({ length: fillerColumnCount }, (_, index) => (
+                    <JournalFillerCell key={`filler-${student.id}-${index}`} rowBg={rowBg} />
+                  ))}
                   <td
                     className="sticky right-0 z-10 h-12 border-l border-slate-200 bg-inherit"
                     style={{
