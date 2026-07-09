@@ -78,6 +78,8 @@ export function JournalTable({
   const [grades, setGrades] = useState(() => data.grades)
   const scrollRef = useRef<HTMLDivElement>(null)
   const todayColumnRef = useRef<HTMLTableCellElement>(null)
+  /** Контекст, для которого уже выполнен автоскролл к «сегодня» (не повторять при догрузке слева). */
+  const autoScrolledContextRef = useRef<string | null>(null)
   const [isOverflowing, setIsOverflowing] = useState(false)
   const [canScrollLeft, setCanScrollLeft] = useState(false)
   const [canScrollRight, setCanScrollRight] = useState(false)
@@ -219,10 +221,14 @@ export function JournalTable({
   }, [prependedColumnsCount, onScrollPositionRestored])
 
   useEffect(() => {
-    if (todayIndex < 0 || !todayColumnRef.current) return
+    if (todayIndex < 0 || data.dates.length === 0) return
+    const contextKey = `${data.classId}:${data.subjectId}`
+    if (autoScrolledContextRef.current === contextKey) return
     const el = todayColumnRef.current
+    if (!el) return
     const id = requestAnimationFrame(() => {
       el.scrollIntoView({ behavior: 'auto', block: 'nearest', inline: 'end' })
+      autoScrolledContextRef.current = contextKey
     })
     return () => cancelAnimationFrame(id)
   }, [data.dates.length, todayIndex, data.classId, data.subjectId])
