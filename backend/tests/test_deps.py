@@ -2,7 +2,7 @@ import uuid
 from datetime import timedelta
 
 from fastapi.testclient import TestClient
-from jose import jwt
+import jwt
 
 from app.core.config import settings
 from app.core.timeutil import now
