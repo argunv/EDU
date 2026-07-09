@@ -259,6 +259,21 @@ export function JournalTable({
   }, [data.dates.length, data.students.length, fillerColumnCount, updateScrollState])
 
   useEffect(() => {
+    const container = scrollRef.current
+    if (!container) return
+
+    const handleWheel = (event: WheelEvent) => {
+      if (!event.shiftKey) return
+      if (container.scrollWidth <= container.clientWidth + 1) return
+      event.preventDefault()
+      container.scrollLeft += event.deltaY
+    }
+
+    container.addEventListener('wheel', handleWheel, { passive: false })
+    return () => container.removeEventListener('wheel', handleWheel)
+  }, [data.dates.length, data.students.length, fillerColumnCount])
+
+  useEffect(() => {
     if (prependedColumnsCount <= 0 || !scrollRef.current || !onScrollPositionRestored) return
     const width = prependedColumnsCount * DATE_COLUMN_MIN_WIDTH_PX
     const id = requestAnimationFrame(() => {
@@ -418,7 +433,9 @@ export function JournalTable({
 
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-4 py-3 dark:border-zinc-600 dark:bg-zinc-700/60">
         {isOverflowing ? (
-          <div className="text-sm font-medium text-slate-700 dark:text-slate-200">Можно листать влево/вправо →</div>
+          <div className="text-sm font-medium text-slate-700 dark:text-slate-200">
+            Shift + колёсико или кнопки ← →
+          </div>
         ) : (
           <div className="text-sm font-medium text-slate-700 dark:text-slate-200">Листание по датам</div>
         )}

@@ -140,3 +140,55 @@ describe('JournalTable filler columns', () => {
     })
   })
 })
+
+describe('JournalTable shift wheel scroll', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-03-27T12:00:00'))
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      callback(0)
+      return 1
+    })
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: vi.fn(),
+    })
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  })
+
+  it('Given shift held When wheel over table Then scrolls horizontally', async () => {
+    const dates = Array.from({ length: 20 }, (_, index) => {
+      const day = String(index + 1).padStart(2, '0')
+      return `2026-03-${day}`
+    })
+
+    const { container } = render(<JournalTable data={makeJournalData(dates)} />)
+    const scrollContainer = container.querySelector('.max-h-\\[70dvh\\]') as HTMLDivElement
+    Object.defineProperty(scrollContainer, 'clientWidth', {
+      configurable: true,
+      value: 800,
+    })
+    Object.defineProperty(scrollContainer, 'scrollWidth', {
+      configurable: true,
+      value: 1600,
+    })
+    scrollContainer.scrollLeft = 0
+
+    await act(async () => {
+      fireEvent(window, new Event('resize'))
+    })
+
+    await act(async () => {
+      scrollContainer.dispatchEvent(
+        new WheelEvent('wheel', { deltaY: 120, shiftKey: true, bubbles: true, cancelable: true }),
+      )
+    })
+
+    expect(scrollContainer.scrollLeft).toBe(120)
+  })
+})
