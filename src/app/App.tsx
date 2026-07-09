@@ -6,7 +6,7 @@ import { router } from './router'
 export default function App() {
   return (
     <Providers>
-      <RouterProvider router={router} />
+      <RouterProvider router={router} useTransitions={false} />
     </Providers>
   )
 }
