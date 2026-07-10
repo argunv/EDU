@@ -27,6 +27,7 @@ type AuthOverride = {
   login?: () => Promise<void>
   logout?: () => void
   setUserFromToken?: () => void
+  updateUser?: (patch: Partial<User>) => void
 }
 
 type RenderOptions = {
@@ -44,6 +45,7 @@ export function renderWithProviders(ui: ReactElement, options: RenderOptions = {
     login: options.auth?.login ?? (async () => {}),
     logout: options.auth?.logout ?? (() => {}),
     setUserFromToken: options.auth?.setUserFromToken ?? (() => {}),
+    updateUser: options.auth?.updateUser ?? (() => {}),
   }
 
   function Wrapper({ children }: { children: ReactNode }) {

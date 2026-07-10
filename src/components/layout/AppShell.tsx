@@ -51,7 +51,6 @@ export function AppShell() {
   const isTeacherLesson = location.pathname.startsWith('/teacher/lesson/')
   const showNav =
     Boolean(user) &&
-    user?.role !== 'teacher' &&
     user?.role !== 'pending' &&
     user?.role !== 'rejected' &&
     !isTeacherLesson

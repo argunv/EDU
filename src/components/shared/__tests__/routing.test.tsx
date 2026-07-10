@@ -48,6 +48,7 @@ describe('routing and boundaries', () => {
           login: async () => {},
           logout: () => {},
           setUserFromToken: () => {},
+          updateUser: () => {},
         }}
       >
         <MemoryRouter initialEntries={['/admin']}>
@@ -74,6 +75,7 @@ describe('routing and boundaries', () => {
           login: async () => {},
           logout: () => {},
           setUserFromToken: () => {},
+          updateUser: () => {},
         }}
       >
         <MemoryRouter initialEntries={['/admin/classes']}>
@@ -100,6 +102,7 @@ describe('routing and boundaries', () => {
           login: async () => {},
           logout: () => {},
           setUserFromToken: () => {},
+          updateUser: () => {},
         }}
       >
         <MemoryRouter initialEntries={['/teacher/today']}>
@@ -126,6 +129,7 @@ describe('routing and boundaries', () => {
           login: async () => {},
           logout: () => {},
           setUserFromToken: () => {},
+          updateUser: () => {},
         }}
       >
         <MemoryRouter initialEntries={['/me/schedule']}>
@@ -152,6 +156,7 @@ describe('routing and boundaries', () => {
           login: async () => {},
           logout: () => {},
           setUserFromToken: () => {},
+          updateUser: () => {},
         }}
       >
         <MemoryRouter initialEntries={['/admin/classes']}>

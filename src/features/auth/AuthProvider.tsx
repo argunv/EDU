@@ -65,6 +65,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(u)
   }, [])
 
+  const updateUser = useCallback((patch: Partial<User>) => {
+    setUser((prev) => (prev ? { ...prev, ...patch } : prev))
+  }, [])
+
   const logout = useCallback(async () => {
     try {
       await apiLogout()
@@ -76,8 +80,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   const value = useMemo<AuthContextValue>(
-    () => ({ user, accessToken, login, logout, setUserFromToken, ready }),
-    [user, accessToken, login, logout, setUserFromToken, ready],
+    () => ({ user, accessToken, login, logout, setUserFromToken, updateUser, ready }),
+    [user, accessToken, login, logout, setUserFromToken, updateUser, ready],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
