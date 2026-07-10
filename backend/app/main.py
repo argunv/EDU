@@ -10,7 +10,7 @@ from fastapi.exceptions import RequestValidationError
 from prometheus_fastapi_instrumentator import Instrumentator
 
 from app.core.config import settings, validate_production_secrets
-from app.routers import auth, health, admin, classes, students, teacher, me
+from app.routers import auth, health, admin, classes, students, teacher, me, media
 
 logger = logging.getLogger("app.access")
 
@@ -34,12 +34,15 @@ async def lifespan(app: FastAPI):
     yield
 
 
+_docs_enabled = settings.environment_key != "production"
+
 app = FastAPI(
     title="ABH Edu API",
     description="Backend API for ABH Edu",
     version="0.1.0",
-    openapi_url="/openapi.json",
-    docs_url="/docs",
+    openapi_url="/openapi.json" if _docs_enabled else None,
+    docs_url="/docs" if _docs_enabled else None,
+    redoc_url="/redoc" if _docs_enabled else None,
     lifespan=lifespan,
 )
 
@@ -131,6 +134,7 @@ app.include_router(classes.router, prefix=API_PREFIX)
 app.include_router(students.router, prefix=API_PREFIX)
 app.include_router(teacher.router, prefix=API_PREFIX)
 app.include_router(me.router, prefix=API_PREFIX)
+app.include_router(media.router, prefix=API_PREFIX)
 
 # Backward-compatible routes for existing test suite.
 if settings.environment_key == "test":
@@ -141,3 +145,4 @@ if settings.environment_key == "test":
     app.include_router(students.router)
     app.include_router(teacher.router)
     app.include_router(me.router)
+    app.include_router(media.router)

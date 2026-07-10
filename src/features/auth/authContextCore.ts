@@ -7,8 +7,9 @@ export type AuthContextValue = {
   user: User | null
   accessToken: string | null
   login: (credentials: LoginCredentials) => Promise<void>
-  logout: () => void
+  logout: () => Promise<void>
   setUserFromToken: (accessToken: string, user: User) => void
+  updateUser: (patch: Partial<User>) => void
   ready: boolean
 }
 

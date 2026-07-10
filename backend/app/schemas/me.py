@@ -5,6 +5,7 @@ class ChildResponse(BaseModel):
     id: str
     name: str
     class_name: str
+    avatar_url: str | None = None
 
 
 class ScheduleItemResponse(BaseModel):

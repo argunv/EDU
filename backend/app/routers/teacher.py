@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
+from app.core.timeutil import app_today
 from app.deps import DbSession, TeacherUser
 from app.models.lesson import Lesson, LessonAttendance
 from app.models.class_model import Class
@@ -126,7 +127,7 @@ def _lesson_owned_by_teacher(
 
 
 def _week_day_index(week_offset: int, day_index: int) -> date:
-    today = date.today()
+    today = app_today()
     # Monday = 0
     monday = today - timedelta(days=today.weekday())
     week_monday = monday + timedelta(weeks=week_offset)

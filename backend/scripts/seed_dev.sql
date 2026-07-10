@@ -1,8 +1,8 @@
--- Dev seed (MIN × 5) for ABH_Edu
--- Объём данных увеличен в 5 раз с помощью generate_series / unnest.
--- Классы: 15 (5А–5Д, 6А–6Д, 9А–9Д), учителя: 75, ученики: 255, родители: 50.
--- Пароль для всех: 123456 (bcrypt hash один для всех)
--- При каждом запуске таблицы очищаются (TRUNCATE CASCADE), затем данные вставляются заново.
+-- DESTRUCTIVE DEV SEED for ABH Edu — DO NOT RUN IN PRODUCTION
+-- TRUNCATE CASCADE clears users/classes/subjects and related tables, then re-inserts demo data.
+-- Объём: классы 15, учителя 75, ученики 255, родители 50.
+-- Пароль для всех demo-пользователей: 123456 (один bcrypt hash).
+-- Только для локальной разработки / демо (`task dev`).
 
 SET client_min_messages = WARNING;
 

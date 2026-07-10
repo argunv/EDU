@@ -10,7 +10,7 @@ class LoginRequest(BaseModel):
 class RegisterRequest(BaseModel):
     name: str = Field(..., min_length=1)
     email: EmailStr
-    password: str = Field(..., min_length=6)
+    password: str = Field(..., min_length=8, max_length=128)
 
 
 class ForgotPasswordRequest(BaseModel):
@@ -19,7 +19,7 @@ class ForgotPasswordRequest(BaseModel):
 
 class ResetPasswordRequest(BaseModel):
     token: str
-    password: str = Field(..., min_length=6)
+    password: str = Field(..., min_length=8, max_length=128)
 
 
 class TokenResponse(BaseModel):

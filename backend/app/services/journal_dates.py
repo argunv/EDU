@@ -8,6 +8,8 @@ from typing import Iterable
 
 from fastapi import HTTPException
 
+from app.core.timeutil import app_today
+
 # Пн–Пт: соответствие day_label (строка в расписании) и weekday() (0=Пн … 4=Пт)
 DAY_LABEL_TO_WEEKDAY: dict[str, int] = {
     "понедельник": 0,
@@ -52,7 +54,7 @@ def parse_journal_date_range(
     Если from_date/to_date не заданы — по умолчанию 90 дней назад до сегодня.
     При неверном формате или диапазоне — HTTPException 400.
     """
-    today = date.today()
+    today = app_today()
     if from_date is None and to_date is None:
         return (today - timedelta(days=90), today)
     if from_date is None or to_date is None:
@@ -93,7 +95,7 @@ def build_journal_dates(
     """
     if not weekdays:
         return []
-    today = date.today()
+    today = app_today()
     start = (
         start_date
         if start_date is not None

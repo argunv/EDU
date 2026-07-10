@@ -2,8 +2,10 @@
 
 import logging
 import re
+import time
 
 from fastapi import HTTPException, status
+import redis
 
 logger = logging.getLogger(__name__)
 
@@ -13,16 +15,17 @@ logger = logging.getLogger(__name__)
 # таймаутов на каждый запрос).
 _redis_client = None
 _redis_failed = False
+_redis_retry_at = 0.0
+_REDIS_RETRY_SECONDS = 5.0
 
 
 def get_redis():
-    global _redis_client, _redis_failed
-    if _redis_failed:
+    global _redis_client, _redis_failed, _redis_retry_at
+    if _redis_failed and time.monotonic() < _redis_retry_at:
         return None
     if _redis_client is not None:
         return _redis_client
     try:
-        import redis
         from app.core.config import settings
 
         # Короткий таймаут, чтобы в тестах/без Redis не зависать на каждом
@@ -35,7 +38,11 @@ def get_redis():
         _redis_client.ping()
     except Exception:
         _redis_failed = True
+        _redis_retry_at = time.monotonic() + _REDIS_RETRY_SECONDS
         _redis_client = None
+    else:
+        _redis_failed = False
+        _redis_retry_at = 0.0
     return _redis_client
 
 

@@ -8,7 +8,7 @@ datetime.now(tz=...) и fromtimestamp(..., tz=...) с часовым поясо�
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
 
@@ -22,6 +22,11 @@ def app_tz() -> ZoneInfo:
 def now() -> datetime:
     """Текущий момент в app_tz() (всегда timezone-aware)."""
     return datetime.now(app_tz())
+
+
+def app_today() -> date:
+    """Calendar date in APP_TIMEZONE."""
+    return now().date()
 
 
 def from_timestamp(ts: float) -> datetime:

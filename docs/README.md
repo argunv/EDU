@@ -1,7 +1,9 @@
-# Документация проекта
+# Документация ABH Edu
 
-Основные материалы:
-- корневой **`README.md`** — стек, Docker Compose, nginx/API (`/api/...`), observability, seed, CI/Taskfile, требования Node/Vite (в т.ч. `.nvmrc` и предупреждение Vite 7 на ветке 22.x);
-- `user-guide.md` — руководство пользователя для Admin / Учитель / Ученик / Родитель (простыми словами).
-- (по необходимости) `api.md`, `database.md`, `troubleshooting.md` — можно добавить позже.
+| Документ | Для кого | Содержание |
+|----------|----------|------------|
+| [../README.md](../README.md) | Разработчики | Dev-запуск, тесты, API, безопасность |
+| [deploy.md](deploy.md) | DevOps | Production-деплой, TLS, бэкапы, systemd |
+| [user-guide.md](user-guide.md) | Пользователи / демо | Роли, экраны, demo-логины |
 
+Шаблоны env в корне: `.env.example` (dev), `.env.production.example` (prod).

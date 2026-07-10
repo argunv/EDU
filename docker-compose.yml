@@ -44,13 +44,19 @@ services:
       dockerfile: Dockerfile
       target: web
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
 
   automigrate:
     build:
       context: .
       dockerfile: Dockerfile
       target: api
-    command: sh -c "pip install alembic && sleep 5 && sh /app/run_migrate.sh"
+    command: sh /app/run_migrate.sh
     environment:
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
     depends_on:
@@ -98,6 +104,7 @@ services:
       RATE_LIMIT_REGISTER: ${RATE_LIMIT_REGISTER:-3/60}
       RATE_LIMIT_FORGOT: ${RATE_LIMIT_FORGOT:-3/300}
       RATE_LIMIT_RESET: ${RATE_LIMIT_RESET:-5/60}
+      RATE_LIMIT_CHANGE_PASSWORD: ${RATE_LIMIT_CHANGE_PASSWORD:-5/300}
     depends_on:
       postgres:
         condition: service_healthy
@@ -111,15 +118,19 @@ services:
           "CMD",
           "python",
           "-c",
-          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/ready', timeout=3)",
         ]
       interval: 10s
       timeout: 5s
       retries: 6
       start_period: 60s
+    volumes:
+      - media_data:/app/media
     restart: unless-stopped
 
   prometheus:
+    profiles:
+      - observability
     image: prom/prometheus:v2.55.0
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
@@ -133,7 +144,14 @@ services:
     restart: unless-stopped
 
   grafana:
+    profiles:
+      - observability
     image: grafana/grafana:11.2.0
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-change-me-set-in-env}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
     volumes:
       - grafana_data:/var/lib/grafana
       - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
@@ -235,7 +253,11 @@ services:
       rabbitmq:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "python -c 'import pika; exit(0)'"]
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import os, pika; conn = pika.BlockingConnection(pika.URLParameters(os.environ['RABBITMQ_URL'])); conn.close()\"",
+        ]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -249,12 +271,31 @@ services:
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
-      - api
-      - web
+      api:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget -q -O /dev/null http://127.0.0.1/ && wget -q -O /dev/null http://127.0.0.1/api/ready",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
     restart: unless-stopped
 
 volumes:
   pg_data: {}
+  media_data: {}
   prometheus_data: {}
   grafana_data: {}
   es_data: {}
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: ${COMPOSE_SUBNET:-172.30.0.0/24}

@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { server } from '@/test/msw/server'
 
-import { api, configureAuth, mapUserResponse } from './client'
+import { api, configureAuth, mapUserResponse, waitForAuthRefresh } from './client'
 
 const minimalUser = { id: 'u1', name: 'Test', role: 'student' as const }
 
@@ -120,6 +120,46 @@ describe('api auth interceptors', () => {
 
     await expect(api.get('/secure')).rejects.toBeDefined()
     expect(logout).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not restore an obsolete session when logout races with refresh', async () => {
+    let sessionVersion = 0
+    let releaseRefresh = () => {}
+    let markRefreshStarted = () => {}
+    const refreshGate = new Promise<void>((resolve) => {
+      releaseRefresh = resolve
+    })
+    const refreshStarted = new Promise<void>((resolve) => {
+      markRefreshStarted = resolve
+    })
+    const setToken = vi.fn()
+    const logout = vi.fn()
+    configureAuth({
+      getToken: () => 'expired',
+      setToken,
+      setUser: vi.fn(),
+      logout,
+      getSessionVersion: () => sessionVersion,
+    })
+    server.use(
+      http.get('/api/secure', () => HttpResponse.json({}, { status: 401 })),
+      http.post('/api/auth/refresh', async () => {
+        markRefreshStarted()
+        await refreshGate
+        return HttpResponse.json({ access_token: 'obsolete', user: minimalUser })
+      }),
+    )
+
+    const request = api.get('/secure')
+    await refreshStarted
+    sessionVersion += 1
+    const waiting = waitForAuthRefresh()
+    releaseRefresh()
+
+    await waiting
+    await expect(request).rejects.toThrow('Auth session changed during refresh')
+    expect(setToken).not.toHaveBeenCalled()
+    expect(logout).not.toHaveBeenCalled()
   })
 })
 

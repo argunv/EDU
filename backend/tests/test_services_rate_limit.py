@@ -2,6 +2,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.core.config import settings
+from app.services import rate_limit
 from app.services.rate_limit import check_rate_limit, parse_rate, rate_limit_key
 
 
@@ -98,3 +99,33 @@ def test_check_rate_limit_redis_pipeline_error_fail_open(monkeypatch):
     monkeypatch.setattr(settings, "rate_limit_fail_closed", False)
     monkeypatch.setattr("app.services.rate_limit.get_redis", lambda: FakeRedis())
     check_rate_limit("login", "10.0.0.2", "5/60")
+
+
+def test_get_redis_retries_after_temporary_failure(monkeypatch):
+    class FakeRedis:
+        def ping(self):
+            return True
+
+    calls = {"count": 0}
+
+    def from_url(*_args, **_kwargs):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise ConnectionError("temporary outage")
+        return FakeRedis()
+
+    clock = {"now": 100.0}
+    monkeypatch.setattr(rate_limit.redis, "from_url", from_url)
+    monkeypatch.setattr(rate_limit.time, "monotonic", lambda: clock["now"])
+    monkeypatch.setattr(rate_limit, "_redis_client", None)
+    monkeypatch.setattr(rate_limit, "_redis_failed", False)
+    monkeypatch.setattr(rate_limit, "_redis_retry_at", 0.0)
+
+    assert rate_limit.get_redis() is None
+    assert rate_limit.get_redis() is None
+    assert calls["count"] == 1
+
+    clock["now"] += rate_limit._REDIS_RETRY_SECONDS
+    assert rate_limit.get_redis() is not None
+    assert calls["count"] == 2
+    assert rate_limit._redis_failed is False

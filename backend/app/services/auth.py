@@ -46,7 +46,9 @@ def decode_access_token(token: str) -> dict | None:
         return None
 
 
-def create_refresh_token(db: Session, user_id: UUID) -> tuple[str, RefreshToken]:
+def create_refresh_token(
+    db: Session, user_id: UUID, *, commit: bool = True
+) -> tuple[str, RefreshToken]:
     """Create a new refresh token and persist it. Returns (raw_token, model)."""
     raw = secrets.token_urlsafe(64)
     import hashlib
@@ -59,8 +61,11 @@ def create_refresh_token(db: Session, user_id: UUID) -> tuple[str, RefreshToken]
         expires_at=expires_at,
     )
     db.add(ref)
-    db.commit()
-    db.refresh(ref)
+    if commit:
+        db.commit()
+        db.refresh(ref)
+    else:
+        db.flush()
     return raw, ref
 
 
@@ -98,15 +103,25 @@ def find_valid_refresh_token(db: Session, token_hash: str) -> RefreshToken | Non
 
 def rotate_refresh_token(db: Session, old_token_hash: str) -> tuple[str, User] | None:
     """Invalidate old refresh token and issue a new one. Returns (new_raw_token, user) or None."""
-    ref = find_valid_refresh_token(db, old_token_hash)
+    ref = (
+        db.query(RefreshToken)
+        .filter(
+            RefreshToken.token_hash == old_token_hash,
+            RefreshToken.revoked == "N",
+            RefreshToken.expires_at > now(),
+        )
+        .with_for_update()
+        .first()
+    )
     if not ref:
         return None
-    ref.revoked = "Y"
-    db.commit()
     user = db.query(User).filter(User.id == ref.user_id).first()
     if not user:
+        db.rollback()
         return None
-    raw_new, _ = create_refresh_token(db, user.id)
+    ref.revoked = "Y"
+    raw_new, _ = create_refresh_token(db, user.id, commit=False)
+    db.commit()
     return raw_new, user
 
 

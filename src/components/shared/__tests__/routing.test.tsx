@@ -46,8 +46,9 @@ describe('routing and boundaries', () => {
           accessToken: 't',
           ready: true,
           login: async () => {},
-          logout: () => {},
+          logout: async () => {},
           setUserFromToken: () => {},
+          updateUser: () => {},
         }}
       >
         <MemoryRouter initialEntries={['/admin']}>
@@ -72,8 +73,9 @@ describe('routing and boundaries', () => {
           accessToken: 't',
           ready: true,
           login: async () => {},
-          logout: () => {},
+          logout: async () => {},
           setUserFromToken: () => {},
+          updateUser: () => {},
         }}
       >
         <MemoryRouter initialEntries={['/admin/classes']}>
@@ -98,8 +100,9 @@ describe('routing and boundaries', () => {
           accessToken: 't',
           ready: true,
           login: async () => {},
-          logout: () => {},
+          logout: async () => {},
           setUserFromToken: () => {},
+          updateUser: () => {},
         }}
       >
         <MemoryRouter initialEntries={['/teacher/today']}>
@@ -124,8 +127,9 @@ describe('routing and boundaries', () => {
           accessToken: 't',
           ready: true,
           login: async () => {},
-          logout: () => {},
+          logout: async () => {},
           setUserFromToken: () => {},
+          updateUser: () => {},
         }}
       >
         <MemoryRouter initialEntries={['/me/schedule']}>
@@ -150,8 +154,9 @@ describe('routing and boundaries', () => {
           accessToken: 't',
           ready: true,
           login: async () => {},
-          logout: () => {},
+          logout: async () => {},
           setUserFromToken: () => {},
+          updateUser: () => {},
         }}
       >
         <MemoryRouter initialEntries={['/admin/classes']}>

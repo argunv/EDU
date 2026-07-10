@@ -4,7 +4,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 
 import { apiResetPassword } from '../../api/auth'
 
-const MIN_PASSWORD_LENGTH = 6
+const MIN_PASSWORD_LENGTH = 8
 
 export function ResetPasswordPage() {
   const [searchParams] = useSearchParams()

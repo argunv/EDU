@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import and_, or_
 from sqlalchemy.exc import IntegrityError
 
-from app.core.timeutil import now
+from app.core.timeutil import app_today, now
 from app.deps import AdminUser, DbSession
 from app.models.user import User
 from app.models.role_profiles import (
@@ -188,7 +188,7 @@ def approve_user(
     if body.role == "student" and body.class_id:
         class_uid = _parse_uuid_param(body.class_id, field="class_id")
         try:
-            ensure_no_enrollment_overlap(db, user_id, date.today(), None)
+            ensure_no_enrollment_overlap(db, user_id, app_today(), None)
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         db.add(ClassEnrollment(student_user_id=user_id, class_id=class_uid))
@@ -267,7 +267,7 @@ def patch_user_role(
     if body.role == "student" and body.class_id:
         class_uid = _parse_uuid_param(body.class_id, field="class_id")
         try:
-            ensure_no_enrollment_overlap(db, user_id, date.today(), None)
+            ensure_no_enrollment_overlap(db, user_id, app_today(), None)
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         db.add(ClassEnrollment(student_user_id=user_id, class_id=class_uid))

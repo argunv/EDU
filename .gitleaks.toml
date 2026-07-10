@@ -1,0 +1,9 @@
+title = "ABH Edu gitleaks config"
+
+# Retired CI placeholder in workflow history (commit 9d9740f). Backend CI now
+# generates an ephemeral JWT_SECRET at runtime via openssl rand.
+[allowlist]
+description = "Historical CI test JWT placeholder in GitHub Actions workflows"
+regexTarget = "match"
+regexes = ['''ci-secret-at-least-32-bytes-long''']
+paths = ['''\.github/workflows/(ci|release)\.yml''']

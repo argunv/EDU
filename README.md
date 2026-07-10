@@ -1,606 +1,316 @@
 # ABH Edu
 
-ABH Edu — full-stack MVP-платформа для школы: управление пользователями и ролями, расписанием, уроками, журналом, домашними заданиями и просмотром данных учениками/родителями.
+Школьная платформа: пользователи и роли, расписание, уроки, журнал, домашние задания, просмотр для учеников и родителей.
 
-Проект состоит из:
-- **Frontend** на React + Vite
-- **Backend** на FastAPI
-- **Инфраструктуры** на PostgreSQL, Redis, RabbitMQ, Docker Compose и nginx
-- **Email notifier** для сценария сброса пароля
+| Слой | Стек |
+|------|------|
+| Frontend | React 19, TypeScript, Vite 7, React Router, TanStack Query, Tailwind |
+| Backend | Python 3.12, FastAPI, SQLAlchemy, Alembic, Pydantic |
+| Infra | PostgreSQL, Redis, RabbitMQ, Docker Compose, nginx |
+| Email | Notifier (RabbitMQ → SMTP) для сброса пароля |
 
----
-
-## Стек
-
-### Frontend
-- React 19
-- TypeScript
-- Vite
-- React Router
-- TanStack Query
-- Tailwind CSS
-- Vitest + Testing Library + MSW
-
-### Backend
-- Python 3.12
-- FastAPI
-- SQLAlchemy
-- Alembic
-- Pydantic
-- Pytest
-
-### Infrastructure
-- PostgreSQL
-- Redis
-- RabbitMQ
-- Docker Compose
-- nginx
-
-### Версии для локальной разработки
-
-- **Node.js** для фронта: минимальная версия задаётся в **`package.json` → `engines.node`** и в **`.nvmrc`** (сейчас **22.12.0** — её же использует стадия сборки `web` в `Dockerfile` и job’ы Node в CI через `node-version-file`). При [nvm](https://github.com/nvm-sh/nvm) из корня: `nvm install` и `nvm use`.
-- **Vite 7** при `npm run dev` / `npm run build` предупреждает, если Node ниже порога: нужен **20.19+** или **22.12+** (на ветке 22 недостаточно «любого» 22.x: например **22.11.x** уже вызывает предупреждение, хотя сборка может завершиться успешно). Чтобы убрать предупреждение и совпасть с CI/Docker, держите ровно версию из `.nvmrc` или новее в рамках поддерживаемой линии.
-- **Python** 3.12 и Poetry — для backend без Docker (см. `backend/pyproject.toml`). Корневой **`pyrightconfig.json`** направляет Pyright на каталог `backend/` и локальный venv `backend/.venv` (в репозиторий секреты не кладутся).
-- **Docker** с Compose Plugin v2 — для PostgreSQL, API, nginx и остального стека.
-- Опционально **[Task](https://taskfile.dev)** — команды `task dev`, `task migrate`, `task check` и др. читают корневой `Taskfile.yml` и при необходимости `.env`.
+**Требования:** Node **22.12.0** (см. `.nvmrc`), Docker Compose v2, Python **3.12**, опционально [Task](https://taskfile.dev) и Poetry. На production-сервере нужен `flock` (`util-linux`) для сериализации операций.
 
 ---
 
-## Что реализовано (MVP)
+## Оглавление
 
-### Аутентификация и роли
-- регистрация пользователя с ролью `pending`
-- вход / выход
-- refresh access token через httpOnly cookie
-- запрос на сброс пароля
-- подтверждение / отклонение пользователя админом
-- назначение ролей:
-  - `admin`
-  - `teacher`
-  - `student`
-  - `parent`
-
-### Администратор
-- просмотр и модерация пользователей
-- одобрение / отклонение заявок
-- назначение ролей
-- управление школьными настройками
-- настройка расписания по:
-  - классу
-  - смене
-  - дню недели
-  - слотам уроков
-- просмотр журнала
-
-### Учитель
-- просмотр уроков по дням
-- автоматическое создание уроков на дату из расписания при открытии дня
-- ввод темы урока
-- ввод домашнего задания
-- сохранение посещаемости
-- выставление оценок
-- работа с журналом по классу и предмету
-
-### Ученик / Родитель
-- просмотр расписания
-- просмотр домашнего задания
-- просмотр прогресса по предметам
-- у родителя — выбор ребёнка
-
-### Сброс пароля
-- запрос письма
-- отправка задачи через RabbitMQ
-- обработка через notifier
-- отправка email через SMTP
+1. [Быстрый старт (dev)](#быстрый-старт-dev)
+2. [Что где открывать](#что-где-открывать)
+3. [Команды Task](#команды-task)
+4. [Demo-данные](#demo-данные)
+5. [Production / деплой](#production--деплой)
+6. [Тесты и проверка](#тесты-и-проверка)
+7. [Переменные окружения](#переменные-окружения)
+8. [Безопасность](#безопасность)
+9. [API (кратко)](#api-кратко)
+10. [Observability](#observability)
+11. [Структура репозитория](#структура-репозитория)
+12. [Документация](#документация)
 
 ---
 
-## Архитектура (кратко)
+## Быстрый старт (dev)
 
-### Frontend
-- `src/features/*` — feature-based UI по ролям и сценариям
-- `src/api/*` — API-клиенты и контракты
-- `src/components/*` — общие UI и layout-компоненты
-- `src/test/*` — тестовая инфраструктура (MSW, render helpers)
-
-### Backend
-- `backend/app/routers/*` — API endpoints
-- `backend/app/services/*` — прикладная логика
-- `backend/app/models/*` — SQLAlchemy модели
-- `backend/app/schemas/*` — Pydantic схемы
-- `backend/app/repositories/*` — точечный repository-слой для сложного admin schedule сценария
-- `backend/alembic/*` — миграции БД
-- `backend/tests/*` — backend tests
-
----
-
-## Быстрый старт (рекомендуемый способ)
-
-### 1. Переменные окружения
+Один сценарий «с нуля» — полный сброс томов, стек, **деструктивный** seed и миграции:
 
 ```bash
 cp .env.example .env
+task dev
 ```
 
-При необходимости отредактируйте `.env` (секреты, URL, SMTP). Для первого запуска достаточно значений из `.env.example`.
+Сайт: [http://localhost](http://localhost)  
+(порт nginx: `NGINX_HOST_PORT` в `.env`, по умолчанию `80`)
 
-### 2. Запуск через Docker Compose
+Без Task — минимальный стек (без seed, без ELK/Grafana):
 
 ```bash
+cp .env.example .env
 docker compose up -d --build
 ```
 
-Поднимаются (без профиля `elk` / `test`): PostgreSQL, Redis, RabbitMQ, **api**, **web** (статика фронта), **notifier**, **automigrate**, **nginx**, а также **Prometheus** и **Grafana** (см. `docker-compose.yml`).
+Compose-файлы:
 
-### После запуска
+| Файл | Назначение |
+|------|------------|
+| `docker-compose.yml` | Базовый стек |
+| `docker-compose.override.yml` | Dev: hot-reload, порты на localhost, `frontend-watch` |
+| `docker-compose.prod.yml` | Prod-overlay: без override, без demo-seed |
 
-Сервис **api** в базовом `docker-compose.yml` слушает порт **8000 только внутри** сети Compose; с хоста API и Swagger удобнее открывать так:
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.override.yml up -d --build
-```
-
-Тогда:
-
-* API и OpenAPI: [http://localhost:8000](http://localhost:8000) и [http://localhost:8000/docs](http://localhost:8000/docs)
-* Сайт (статика фронта через nginx): [http://localhost](http://localhost) (порт задаётся `NGINX_HOST_PORT` в `.env`, по умолчанию 80)
-* Локальный Vite (если запускаете фронт на хосте): [http://localhost:5173](http://localhost:5173)
-
-Без `docker-compose.override.yml` документация по API из браузера на хосте недоступна, пока вы сами не пробросите порт сервиса `api`.
+`docker compose up` автоматически подмешивает **override**. В production используйте только `yml` + `prod.yml` (см. [Production](#production)).
 
 ---
 
-## Docker Compose: dev-режим без полной пересборки
+## Что где открывать
 
-В проекте есть `docker-compose.override.yml`.
+После `task dev` или `docker compose up` с override:
 
-При обычном:
+| Что | URL |
+|-----|-----|
+| Приложение (nginx → web + `/api`) | http://localhost |
+| API напрямую + Swagger | http://localhost:8000/docs |
+| Vite на хосте (если `npm run dev`) | http://localhost:5173 |
+| Prometheus (профиль `observability`) | http://localhost:9090 |
+| Grafana (профиль `observability`, anon Admin в override) | http://localhost:3001 |
+| Kibana (профиль `elk`) | http://localhost:5601 |
+
+Без override порт `8000` с хоста не проброшен — Swagger недоступен, сайт по-прежнему через nginx на `:80`.
+
+В `ENVIRONMENT=production` Swagger/OpenAPI **отключены**.
+
+---
+
+## Команды Task
+
+| Команда | Что делает |
+|---------|------------|
+| `task dev` | Сброс томов, build, up (observability + ELK), seed, migrate |
+| `task up` | Поднять базовый стек (с override, если есть) |
+| `task deploy` / `task up-prod` | Production: `scripts/deploy.sh` |
+| `task status` | Health prod-стека |
+| `task backup` | Дамп БД + media → `./backups/` |
+| `task create-admin` | Админ из `ADMIN_*` в `.env` |
+| `task tunnel` | Публичный HTTPS-туннель на локальный `:80` |
+| `task tunnel-status` / `task tunnel-stop` | Статус / остановка туннеля |
+| `task down-prod` | Остановить prod (тома сохраняются) |
+| `task down` | Остановить и удалить тома |
+| `task migrate` | Alembic через Docker |
+| `task test` | Backend pytest в Docker |
+| `task test-frontend` | Vitest + coverage |
+| `task check` | ESLint + build + flake8 + bandit |
+
+---
+
+## Demo-данные
+
+Файл: `backend/scripts/seed_dev.sql`.
+
+- Делает **`TRUNCATE … CASCADE`** и заново вставляет demo-данные.
+- **Только для локальной разработки / демо. Не запускать на production БД.**
+
+Пароль всех demo-пользователей: **`123456`**
+
+| Роль | Email |
+|------|-------|
+| admin | `admin@test.ru` |
+| teacher | `teacher@test.ru` |
+| student | `user@test.ru` |
+| parent | `parent@test.ru` |
+| pending | `pending@test.ru` |
+
+Перед сменой роли в демо выходите из аккаунта. Лимит login по умолчанию — 5/мин; для частых переключений: `RATE_LIMIT_LOGIN=30/60` в `.env` и перезапуск `api`.
+
+Подробный сценарий показа — в [`docs/user-guide.md`](docs/user-guide.md).
+
+---
+
+## Production / деплой
+
+Полная инструкция: [`docs/deploy.md`](docs/deploy.md).
+
+Кратко на сервере:
 
 ```bash
-docker compose up
+cp .env.production.example .env
+./scripts/gen-secrets.sh
+# отредактируйте FRONTEND_URL, CORS_ORIGINS, SMTP_*
+./scripts/check-env.sh
+./scripts/deploy.sh
+./scripts/create-admin.sh
 ```
 
-для backend:
+Обновление: `./scripts/deploy.sh` или `./scripts/deploy.sh --pull main`.
 
-* код `backend/` монтируется в контейнер `api`
-* включён `uvicorn --reload`
-* изменения в backend подхватываются без полной пересборки
+- Без `docker-compose.override.yml` и без seed.
+- TLS — на reverse proxy/Cloudflare перед nginx (`NGINX_HOST_PORT` по умолчанию `127.0.0.1:80`).
+- Cloudflare Tunnel: `NGINX_HOST_PORT=127.0.0.1:80`, public hostname → `http://localhost:80`.
+- Бэкапы: `./scripts/backup.sh`; проверяемое восстановление пары DB/media: `./scripts/restore.sh`.
 
-Для notifier:
+Шаблон env: [`.env.production.example`](.env.production.example).  
+API не стартует с дефолтными секретами при `ENVIRONMENT=production`.
 
-* код тоже монтируется
-* после правок обычно достаточно:
+---
+
+## Ограничения MVP
+
+- Один сервер и один экземпляр каждого application-сервиса; горизонтальное масштабирование не настроено.
+- `shift` поддерживается существующими контрактами и фильтрами, но полноценный UI сложного двухсменного планирования не заявлен.
+- Email-notifier зависит от внешнего SMTP; bounded retry/DLQ для временных SMTP-ошибок пока не реализованы, ошибка логируется. Observability/ELK опциональны.
+- Seed полностью перезаписывает данные и допустим только в dev/demo.
+
+---
+
+## Тесты и проверка
 
 ```bash
-docker compose restart notifier
+task check          # lint + build фронта, flake8/bandit бэка
+task test           # backend в Docker
+task test-frontend  # frontend coverage
 ```
 
-Для frontend:
+Backend без Docker (нужна PostgreSQL и тестовая БД):
 
-* либо пересобирать образ `web` при изменениях;
-* либо в dev использовать сервис **`frontend-watch`** из override (пересборка `dist` в томе) и volume у **`web`**;
-* либо запускать Vite на хосте (нужен Node из `.nvmrc`):
+```bash
+cd backend
+poetry install --with dev
+export DATABASE_URL=postgresql+psycopg2://USER:PASS@localhost:5432/abh_edu_test
+export RATE_LIMIT_FAIL_CLOSED=false
+poetry run alembic upgrade head
+poetry run pytest -v
+```
+
+Frontend:
 
 ```bash
 npm ci
-npm run dev
+npm run test:coverage   # или: npm test
 ```
 
-и открывать:
-
-* [http://localhost:5173](http://localhost:5173)
+Node для локальной разработки: `nvm use` (версия из `.nvmrc`).
 
 ---
 
 ## Переменные окружения
 
-Скопируйте `.env.example` в `.env` и заполните значения.
+```bash
+cp .env.example .env
+```
 
-### Основные переменные
+| Переменная | Назначение |
+|------------|------------|
+| `DATABASE_URL` | PostgreSQL (в Docker хост — `postgres`) |
+| `REDIS_URL` / `RABBITMQ_URL` | Кэш / очередь |
+| `JWT_SECRET` | Подпись JWT и media URL |
+| `ENVIRONMENT` | `development` \| `staging` \| `production` |
+| `FRONTEND_URL` | Публичный URL сайта (ссылки в письмах) |
+| `CORS_ORIGINS` | JSON-массив origin’ов |
+| `SMTP_*` | Почта для сброса пароля |
+| `VITE_API_URL` | Обычно не задавать (`/api` + proxy Vite); в Docker-сборке уже `/api` |
+| `NGINX_HOST_PORT` | Публикация nginx на хосте; в production example — `127.0.0.1:80` |
 
-* `DATABASE_URL` — PostgreSQL URL
-  пример: `postgresql+psycopg2://postgres:postgres@localhost:5432/abh_edu`
-* `REDIS_URL` — Redis URL
-* `RABBITMQ_URL` — RabbitMQ URL
-* `JWT_SECRET` — секрет для access token
-* `NOTIFIER_QUEUE` — очередь email-задач (обычно `email_tasks`)
-* `SMTP_*` — параметры SMTP для писем сброса пароля; в `docker-compose.yml` для сервиса **notifier** они обязательны и должны быть **непустыми** (в `.env.example` заданы безопасные заглушки — без реального SMTP письма не уйдут)
-* `FRONTEND_URL` — URL фронтенда
-* `VITE_API_URL` — base URL для HTTP-клиента фронта (часто не задают: тогда используется `/api`; при полном URL к API указывайте суффикс `/api`, например `http://localhost:8000/api`)
-* `CORS_ORIGINS` — разрешённые origin'ы (JSON array или comma-separated)
+`FRONTEND_URL` — то, что открывает пользователь в браузере (`http://localhost` или `https://…`), **не** имя Docker-сервиса.
 
 ---
 
-## Локальный запуск backend (без Docker)
+## Безопасность
 
-```bash
-cd backend
-poetry install
-export DATABASE_URL=postgresql+psycopg2://postgres:postgres@localhost:5432/abh_edu
-alembic upgrade head
-uvicorn app.main:app --reload --port 8000
-```
+| Тема | Как устроено |
+|------|----------------|
+| Access token | Короткоживущий, только в памяти фронта |
+| Refresh token | httpOnly cookie, ротация; **не** выдаётся при регистрации `pending` |
+| Медиа | `GET /api/media/...` только с HMAC (`exp` + `sig`) в `avatar_url` |
+| Пароли | Минимум 8 символов (регистрация / сброс / смена) |
+| Prod-секреты | При `ENVIRONMENT=production` API не стартует с дефолтными секретами |
+| Docs | `/docs` и OpenAPI выключены в production |
 
-### Taskfile (из корня)
-
-Полный сброс и подъём dev-стека (БД, API, nginx, Prometheus, Grafana, ELK, seed, миграции) — команда **`task dev`** (см. описание в `Taskfile.yml`; первый холодный старт ELK может занять несколько минут).
-
-Точечные шаги без полного `task dev`:
-
-```bash
-docker compose up -d postgres
-task migrate
-docker compose up -d api web nginx redis rabbitmq notifier
-```
-
-Имени задачи `task api` в репозитории нет — поднимайте сервисы через `docker compose up` (см. список сервисов в `docker-compose.yml`).
+При 401 фронт вызывает `POST /api/auth/refresh` и повторяет запрос; при неудаче — logout.
 
 ---
 
-## Локальный запуск frontend
+## API (кратко)
 
-Из корня репозитория (после `nvm use` по `.nvmrc` или другой Node **20.19+** / **22.12+**, см. раздел «Версии» выше):
+Все прикладные роуты — под префиксом **`/api`**. Nginx проксирует `/api/` на backend без обрезки пути.  
+Swagger: `http://localhost:8000/docs` (только прямой доступ к `api`, не через nginx `:80`).
 
-```bash
-npm ci
-npm run dev
-```
+| Группа | Примеры |
+|--------|---------|
+| Auth | `POST /api/auth/login`, `/register`, `/refresh`, `/logout`, `/forgot-password`, `/reset-password`, `GET /api/auth/me` |
+| Admin | `/api/admin/users`, `/schedule`, `/journal`, school-settings |
+| Teacher | `/api/teacher/lessons`, `/journal` |
+| Me | `/api/me/schedule`, `/homework`, `/progress`, `/children` |
+| Health | `GET /api/health`, `GET /api/ready` (Postgres + Redis + RabbitMQ) |
+| Metrics | `GET /metrics` (не под `/api`; в `test` — 404) |
 
-По умолчанию:
-
-* frontend dev server: [http://localhost:5173](http://localhost:5173)
-* базовый URL API в коде: `import.meta.env.VITE_API_URL ?? '/api'` (см. `src/api/client.ts`). Для `npm run dev` чаще всего **ничего не задавайте** — запросы идут на тот же origin с префиксом `/api` (proxy в `vite.config.ts`). Если задаёте полный URL на контейнер/хост API, укажите **с префиксом `/api`**, например `http://localhost:8000/api`.
-
-### Production build
-
-```bash
-npm run build
-```
+Полный список — в OpenAPI (`/docs`) в development.
 
 ---
-
-## Seed / тестовые данные
-
-Для dev и демонстрации есть идемпотентный seed (`backend/scripts/seed_dev.sql`). Удобный полный сценарий с правильным порядком миграций и seed — **`task dev`**. Вручную (значения `POSTGRES_USER` / `POSTGRES_DB` должны совпадать с `.env`):
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.override.yml up -d postgres
-task migrate
-docker compose -f docker-compose.yml -f docker-compose.override.yml exec -T postgres \
-  psql -U postgres -d abh_edu < backend/scripts/seed_dev.sql
-```
-
-Если в `.env` заданы другие `POSTGRES_USER` или `POSTGRES_DB`, подставьте их вместо `postgres` / `abh_edu`.
-
-SQL-файл:
-
-* `backend/scripts/seed_dev.sql`
-
-### Пароль для всех тестовых пользователей
-
-**123456**
-
-### Тестовые аккаунты
-
-| Роль    | Email                                     |
-| ------- | ----------------------------------------- |
-| admin   | [admin@test.ru](mailto:admin@test.ru)     |
-| teacher | [teacher@test.ru](mailto:teacher@test.ru) |
-| student | [user@test.ru](mailto:user@test.ru)       |
-| parent  | [parent@test.ru](mailto:parent@test.ru)   |
-| pending | [pending@test.ru](mailto:pending@test.ru) |
-
-> Использовать только для dev / demo / test среды.
-
-**Legacy-аккаунты** (тоже в seed, пароль `123456`): `admin@abh-edu.local`, `t.rus.1@school.abh`, `t.lit.1@school.abh`, `s.5a.01.c1@school.abh`, `parent01@school.abh`.
-
-**Pending:** `pending@test.ru` виден администратору в списке заявок без входа под этим пользователем. Прямой вход через `/auth/login` вернёт сообщение «Учётная запись ожидает одобрения»; экран `/pending` доступен после регистрации с этим email.
-
----
-
-## Тесты
-
----
-
-## Backend tests
-
-```bash
-cd backend
-poetry install --with dev
-export DATABASE_URL=postgresql+psycopg2://postgres:postgres@localhost:5432/abh_edu_test
-pytest -v
-```
-
-### Важно
-
-Для backend tests используется **PostgreSQL**, а не SQLite, потому что часть сценариев и типов (в частности UUID / миграции / поведение ORM) может вести себя иначе на SQLite.
-
-### Примеры покрываемых зон
-
-* auth
-* admin
-* classes
-* me
-* students
-* teacher
-* services (`auth`, `schedule`, `journal_dates`, `rate_limit`, `email_queue`)
-* relation access
-* config / schemas
-
----
-
-## Frontend tests
-
-Frontend тесты написаны на:
-
-* **Vitest**
-* **React Testing Library**
-* **MSW**
-
-### Что покрывается
-
-* API-клиент и контракты
-* routing
-* auth flow
-* ключевые страницы:
-
-  * Login
-  * Admin Users
-  * Admin Schedule
-  * Classes
-  * Journal
-  * Teacher Journal
-
-### Запуск
-
-```bash
-npm run test:coverage
-```
-
-(то же, что job **frontend-tests** в CI и команда **`task test-frontend`**.)
-
-Альтернатива без отчёта по покрытию:
-
-```bash
-npm test
-```
-
-или:
-
-```bash
-npx vitest run
-```
-
-### Подход
-
-Во frontend используются:
-
-* unit tests для API / utility / contract слоёв
-* component/integration-style tests для ключевых страниц
-* MSW для контролируемого mock API поведения
-
----
-
-## Линтинг
-
-```bash
-task check
-```
-
-Задача **`check`** повторяет основную часть CI по фронту и линтам бэка: **ESLint**, production **сборка Vite** (`npm run build`), **flake8** и **bandit**. Отдельно в CI гоняются backend **pytest** (нужна PostgreSQL и `DATABASE_URL`) и frontend **Vitest**; локально для паритета с CI используйте `task test` (Docker) и **`task test-frontend`**.
-
----
-
-## API Overview
-
-Префикс приложения **`/api`**: все роутеры подключаются с `prefix="/api"` (см. `backend/app/main.py`). Запросы через корневой nginx (`nginx.conf`) на `http://localhost/api/...` уходят на бэкенд **с тем же путём** (`proxy_pass` без обрезки префикса). Документация OpenAPI и Swagger UI у FastAPI остаются на **корне приложения** (`/docs`, `/openapi.json`), они **не** под `/api` и через публичный nginx на порт 80 **не** проксируются на API (только на прямой доступ к сервису `api`, например `http://localhost:8000/docs` с `docker-compose.override.yml`).
-
-В **`ENVIRONMENT=test`** (pytest) те же маршруты дополнительно дублируются **без** префикса `/api` для совместимости со старыми тестами.
-
-### Auth
-
-* `POST /api/auth/register`
-* `POST /api/auth/login`
-* `POST /api/auth/refresh`
-* `POST /api/auth/logout`
-* `POST /api/auth/forgot-password`
-* `POST /api/auth/reset-password`
-* `GET /api/auth/me`
-
-### Admin
-
-* `GET /api/admin/users`
-* `POST /api/admin/users/{id}/approve`
-* `POST /api/admin/users/{id}/reject`
-* `PATCH /api/admin/users/{id}/role`
-* `GET /api/admin/school-settings`
-* `GET /api/admin/schedule`
-* `POST /api/admin/schedule/changes`
-* `GET /api/admin/journal`
-
-### Domain
-
-* `GET /api/classes`
-* `GET /api/classes/{id}`
-* `GET /api/students?search=...`
-
-### Teacher
-
-* `GET /api/teacher/lessons`
-* `GET /api/teacher/lessons/{id}/students`
-* `POST /api/teacher/lessons/grades`
-* `GET /api/teacher/journal?class_id=&subject_id=`
-* `POST /api/teacher/journal/grade`
-
-### Me (student / parent)
-
-* `GET /api/me/children`
-* `GET /api/me/schedule`
-* `GET /api/me/homework`
-* `GET /api/me/progress`
-
-### Health
-
-* `GET /api/health`
-* `GET /api/ready`
 
 ## Observability
 
-Минимальный observability-слой для backend FastAPI:
+Опциональные профили Compose (не входят в минимальный `docker compose up`):
 
-* `GET /metrics` — Prometheus metrics в корне API (не под `/api`), только при **`ENVIRONMENT`** после нормализации (`strip` + lower) равном `development`, `staging` или `production` (см. `Settings.expose_prometheus_metrics` в `app/core/config.py`). В `test` и остальных значениях — **404** (в т.ч. в pytest).
-* `GET /api/health` — liveness
-* `GET /api/ready` — readiness с проверкой PostgreSQL через `SELECT 1`
-
-Сервисы в Docker Compose:
-
-* Prometheus scrape-ит `api:8000/metrics` внутри docker network; данные TSDB в томе `prometheus_data`.
-* Grafana доступна локально в dev на [http://localhost:3001](http://localhost:3001) с **анонимным входом** (роль Admin, только в `docker-compose.override.yml`, без дефолтного `admin`/`admin` в compose).
-* Prometheus доступен локально в dev на [http://localhost:9090](http://localhost:9090)
-
-Быстрая проверка (из корня репозитория; нужен `docker-compose.override.yml`, чтобы API был на `localhost:8000`):
+| Профиль | Сервисы |
+|---------|---------|
+| `observability` | Prometheus, Grafana |
+| `elk` | Elasticsearch, Logstash, Kibana, vector-logs (~4 GB+ RAM) |
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.override.yml up -d --build postgres redis rabbitmq api prometheus grafana
-curl -fsS http://localhost:8000/api/health
-curl -fsS http://localhost:8000/api/ready
-curl -fsS http://localhost:8000/metrics | sed -n '1,20p'
-curl -fsS http://localhost:9090/-/ready
+# Метрики
+docker compose -f docker-compose.yml -f docker-compose.override.yml \
+  --profile observability up -d postgres redis rabbitmq api prometheus grafana
+
+# Логи (ELK)
+docker compose -f docker-compose.yml -f docker-compose.override.yml \
+  --profile elk up -d elasticsearch logstash kibana vector-logs api
 ```
 
-### ELK stack (опционально)
-
-Профиль Compose `elk` поднимает **Elasticsearch**, **Logstash**, **Kibana** и коллектор **vector-logs** (читает логи контейнеров через Docker API и отправляет JSON в Logstash по TCP — так стек работает и на macOS, и на Linux, без монтирования `/var/lib/docker/containers` с хоста).
-
-Безопасность Elasticsearch **отключена** (только для локальной разработки).
-
-Рекомендуется выделить Docker Desktop / Orbstack **не меньше ~4 GB RAM** под JVM Elasticsearch/Logstash.
-
-Подъём вместе с API (чтобы в Kibana пошли логи `api` и остальных сервисов):
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.override.yml --profile elk up -d elasticsearch logstash kibana vector-logs api
-```
-
-Команда **`task dev`** из корня уже использует `--profile elk` и поднимает весь стек (включая Prometheus, Grafana и ELK), дожидается `healthy` через `docker compose up --wait` (таймаут 10 минут на первый холодный старт), затем выполняет seed и миграции.
-
-Порты на хосте (см. `docker-compose.override.yml`):
-
-* Elasticsearch: [http://localhost:9200](http://localhost:9200)
-* Kibana: [http://localhost:5601](http://localhost:5601)
-* Logstash monitoring API: [http://localhost:9600](http://localhost:9600)
-
-В Kibana создайте **Data view** с шаблоном `docker-logs-*` (индексы вида `docker-logs-YYYY.MM.dd` пишет Logstash). Через минуту-две после трафика по API в **Discover** должны появиться события.
-
-OpenAPI / Swagger (только прямой доступ к процессу API, не через nginx на `:80`):
-
-* [http://localhost:8000/docs](http://localhost:8000/docs)
+`task dev` поднимает оба профиля. В production Grafana без анонимного входа; порты метрик на хост в prod-overlay не пробрасываются.
 
 ---
 
-## Auth / Security Notes
-
-### Access token
-
-* short-lived
-* хранится только в памяти frontend-приложения
-* **не** хранится в `localStorage`
-
-### Refresh token
-
-* хранится в **httpOnly cookie**
-* ротируется при использовании
-* инвалидируется при смене пароля
-
-### Поведение frontend при 401
-
-* frontend вызывает `POST /api/auth/refresh` (через `baseURL` из `VITE_API_URL` или `/api`)
-* затем повторяет запрос
-* если refresh неуспешен — пользователь разлогинивается
-
----
-
-## Короткий demo-сценарий для научрука / проверки
-
-> **Перед показом:** выходите из аккаунта перед входом под другой ролью. Лимит login по умолчанию — **5 попыток / 60 с** с одного IP (`RATE_LIMIT_LOGIN` в `.env`). При 429 подождите минуту или для локального demo задайте в `.env`, например, `RATE_LIMIT_LOGIN=30/60`, и перезапустите сервис `api`.
->
-> **Расписание admin:** сначала **Классы** → выберите букву и параллель → **Изменить расписание** (нужен `classId` в URL).
->
-> **curl / API login:** тело запроса — `{"login":"admin@test.ru","password":"123456"}`, поле **`login`**, не `email`.
-
-### 1. Войти как admin
-
-* `admin@test.ru / 123456`
-* открыть список пользователей
-* показать pending user
-* показать управление ролями
-* открыть расписание
-* показать журнал
-
-### 2. Войти как teacher
-
-* `teacher@test.ru / 123456`
-* открыть “Сегодня”
-* показать список уроков
-* открыть урок
-* выставить оценки / посещаемость
-* добавить тему и домашнее задание
-* открыть журнал
-
-### 3. Войти как student
-
-* `user@test.ru / 123456`
-* показать расписание
-* показать домашнее задание
-* показать прогресс
-
-### 4. Войти как parent
-
-* `parent@test.ru / 123456`
-* показать выбор ребёнка
-* показать расписание / ДЗ / прогресс
-
----
-
-## Ограничения текущего MVP
-
-* проект ориентирован на **MVP / demo / учебный сценарий**, а не на production-scale эксплуатацию
-* часть frontend-структуры развивалась итеративно и может быть не полностью унифицирована по внутренним соглашениям
-* backend intentionally сохраняет часть логики в router/service слое без полного repository abstraction
-* часть инфраструктурных скриптов и служебных файлов ориентирована на ускорённую разработку и демонстрационный контур
-* приоритет проекта — **стабильность демонстрационного сценария**, а не максимальная архитектурная абстракция
-
----
-
-## Краткая структура проекта
+## Структура репозитория
 
 ```text
-backend/
-  app/
-    routers/       # API endpoints
-    services/      # business / application logic
-    models/        # SQLAlchemy models
-    schemas/       # Pydantic schemas
-    repositories/  # точечный repository для admin schedule сценария
-  alembic/         # migrations
-  tests/           # backend tests
+backend/app/          # routers, services, models, schemas
+backend/alembic/      # миграции
+backend/tests/        # pytest
+backend/scripts/      # seed_dev.sql, утилиты
+src/features/         # UI по ролям
+src/api/              # HTTP-клиент и контракты
+src/components/       # общий UI / layout
+deploy/               # prometheus, grafana, logstash, vector
+docs/                 # user-guide и индекс
+```
 
-src/
-  features/        # role-based and feature-based frontend pages
-  api/             # API client and contracts
-  components/      # shared UI / layout
-  test/            # frontend test infra
+Локальный backend без Docker:
+
+```bash
+cd backend && poetry install
+export DATABASE_URL=postgresql+psycopg2://...@localhost:5432/abh_edu
+poetry run alembic upgrade head
+poetry run uvicorn app.main:app --reload --port 8000
+```
+
+Локальный frontend:
+
+```bash
+nvm use && npm ci && npm run dev
 ```
 
 ---
 
-## Дополнительные материалы
+## Документация
 
-* `docs/user-guide.md` — пользовательское руководство (роли, сценарии, демо-логины)
-* расширенные заметки по frontend testing при необходимости можно добавить отдельным файлом в `docs/`
+| Файл | Содержание |
+|------|------------|
+| [`docs/deploy.md`](docs/deploy.md) | Деплой, TLS, бэкапы, автообновление |
+| [`docs/user-guide.md`](docs/user-guide.md) | Руководство для ролей |
+| [`docs/README.md`](docs/README.md) | Индекс `docs/` |
+| `.env.example` | Dev-переменные |
+| `.env.production.example` | Production-переменные |
 
 ---
 
 ## License
 
-См. файл `LICENSE`.
+См. [`LICENSE`](LICENSE).
