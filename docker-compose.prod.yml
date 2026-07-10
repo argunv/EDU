@@ -1,0 +1,31 @@
+# Production Compose overlay.
+# Usage:
+#   ./scripts/deploy.sh
+#   # or:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#
+# Do NOT combine with docker-compose.override.yml (dev ports / reload / seed).
+
+services:
+  rabbitmq:
+    # AMQP only — no management UI in production.
+    image: rabbitmq:3-alpine
+
+  api:
+    environment:
+      ENVIRONMENT: production
+      RATE_LIMIT_FAIL_CLOSED: "true"
+
+  notifier:
+    environment:
+      ENVIRONMENT: production
+
+  automigrate:
+    # Alembic is already in the api image.
+    command: sh /app/run_migrate.sh
+
+  nginx:
+    ports:
+      - "${NGINX_HOST_PORT:-80}:80"
+    volumes:
+      - ./deploy/nginx/nginx.prod.conf:/etc/nginx/nginx.conf:ro

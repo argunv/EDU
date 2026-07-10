@@ -4,11 +4,7 @@ from app.core.timeutil import now
 from app.models.class_model import Class
 from app.models.subject import Subject
 from app.models.user import User
-from app.models.role_profiles import (
-    ClassEnrollment,
-    ParentStudentLink,
-    TeacherAssignment,
-)
+from app.models.role_profiles import ParentStudentLink, TeacherAssignment
 from app.schemas.profile import (
     ProfileAssignmentItem,
     ProfileChildItem,

@@ -131,13 +131,25 @@ def reset_password_public_link(token: str) -> str:
     return f"{base}/auth/reset-password?token={token}"
 
 
+_FORBIDDEN_JWT_SECRETS = frozenset(
+    {
+        "change-me-in-production",
+        "dev-only-change-me",
+        "secret",
+        "jwt-secret",
+        "changeme",
+    }
+)
+
+
 def validate_production_secrets() -> None:
     """Fail startup in production if secrets use defaults. Required for audit."""
     if settings.environment_key != "production":
         return
-    if settings.jwt_secret == "change-me-in-production":  # nosec B105
+    jwt = (settings.jwt_secret or "").strip()
+    if jwt in _FORBIDDEN_JWT_SECRETS or len(jwt) < 32:  # nosec B105
         raise ValueError(
-            "JWT_SECRET must be set to a non-default value in production. "
+            "JWT_SECRET must be a strong non-default value (min 32 chars) in production. "
             "Set ENVIRONMENT=production only with secure secrets."
         )
     if "postgres:postgres" in settings.database_url:
@@ -147,9 +159,15 @@ def validate_production_secrets() -> None:
         )
     if "guest:guest@" in settings.rabbitmq_url:
         raise ValueError("RABBITMQ_URL must not use guest credentials in production.")
+    if "edu_mq_dev_pass" in settings.rabbitmq_url:
+        raise ValueError(
+            "RABBITMQ_URL must not use the example password edu_mq_dev_pass in production."
+        )
     if "localhost" in (urlparse(settings.frontend_url).hostname or ""):
         raise ValueError(
             "FRONTEND_URL must not use localhost in production. "
             "For local Docker, set ENVIRONMENT=development, "
             "or set FRONTEND_URL to your public https URL."
         )
+    if (urlparse(settings.frontend_url).scheme or "").lower() != "https":
+        raise ValueError("FRONTEND_URL must use https:// in production.")

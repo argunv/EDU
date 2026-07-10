@@ -34,12 +34,15 @@ async def lifespan(app: FastAPI):
     yield
 
 
+_docs_enabled = settings.environment_key != "production"
+
 app = FastAPI(
     title="ABH Edu API",
     description="Backend API for ABH Edu",
     version="0.1.0",
-    openapi_url="/openapi.json",
-    docs_url="/docs",
+    openapi_url="/openapi.json" if _docs_enabled else None,
+    docs_url="/docs" if _docs_enabled else None,
+    redoc_url="/redoc" if _docs_enabled else None,
     lifespan=lifespan,
 )
 

@@ -371,8 +371,10 @@ def test_upload_avatar(client: TestClient, db, media_tmp):
     assert data["avatar_url"] is not None
     assert "/api/media/avatars/" in data["avatar_url"]
 
-    media_res = client.get(data["avatar_url"].split("?")[0])
+    media_res = client.get(data["avatar_url"])
     assert media_res.status_code == 200
+    unsigned = data["avatar_url"].split("?")[0]
+    assert client.get(unsigned).status_code == 404
 
 
 def test_upload_avatar_too_small_400(client: TestClient, db, media_tmp):

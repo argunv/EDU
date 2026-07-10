@@ -36,12 +36,14 @@ def avatar_absolute_path(user_id: UUID) -> Path:
 def avatar_public_url(avatar_path: str | None) -> str | None:
     if not avatar_path:
         return None
+    from app.services.media_signing import sign_media_url
+
     base = f"/api/media/{avatar_path.lstrip('/')}"
     path = media_root() / avatar_path
     if path.is_file():
         version = int(path.stat().st_mtime)
-        return f"{base}?v={version}"
-    return base
+        base = f"{base}?v={version}"
+    return sign_media_url(base)
 
 
 def delete_avatar_file(user_id: UUID) -> None:
@@ -58,7 +60,10 @@ def save_avatar_from_bytes(user_id: UUID, data: bytes, content_type: str | None)
             detail=f"Файл слишком большой. Максимум {max_mb} МБ",
         )
 
-    if content_type and content_type.split(";")[0].strip().lower() not in ALLOWED_IMAGE_CONTENT_TYPES:
+    normalized_type = (
+        content_type.split(";")[0].strip().lower() if content_type else None
+    )
+    if normalized_type and normalized_type not in ALLOWED_IMAGE_CONTENT_TYPES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Недопустимый формат. Разрешены JPEG, PNG и WebP",

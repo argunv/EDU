@@ -127,7 +127,6 @@ def _refresh_token_hash(raw: str) -> str:
 def register(
     body: RegisterRequest,
     request: Request,
-    response: Response,
     db: DbSession,
 ):
     check_rate_limit("register", _client_ip(request), settings.rate_limit_register)
@@ -148,9 +147,8 @@ def register(
     db.add(UserRole(user_id=user.id, role="pending"))
     db.commit()
     db.refresh(user)
-    raw_refresh, _ = create_refresh_token(db, user.id)
+    # Pending users get a short-lived access token for /pending only — no refresh session.
     access = create_access_token(str(user.id))
-    _set_refresh_cookie(request, response, raw_refresh)
     return TokenResponse(
         access_token=access, user=UserResponse.from_orm_user_with_db(user, db)
     )

@@ -9,13 +9,79 @@ permissions:
   contents: write
 
 jobs:
-  release:
+  frontend:
+    name: Frontend Lint/Build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version-file: ".nvmrc"
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build
+
+  frontend-tests:
+    name: Frontend Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+          cache: npm
+      - run: npm ci
+      - run: npm run test:coverage
+
+  backend:
+    name: Backend Lint/Test
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ${{ vars.CI_POSTGRES_USER }}
+          POSTGRES_PASSWORD: ${{ secrets.CI_POSTGRES_PASSWORD }}
+          POSTGRES_DB: ${{ vars.CI_POSTGRES_DB }}
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      RATE_LIMIT_FAIL_CLOSED: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install poetry
+      - run: poetry install --with dev
+      - run: poetry run flake8 app tests && poetry run bandit -r app
+      - name: Configure DATABASE_URL
+        env:
+          CI_POSTGRES_USER: ${{ vars.CI_POSTGRES_USER }}
+          CI_POSTGRES_DB: ${{ vars.CI_POSTGRES_DB }}
+          CI_POSTGRES_PASSWORD: ${{ secrets.CI_POSTGRES_PASSWORD }}
+        run: |
+          ENC=$(python3 -c "import urllib.parse, os; print(urllib.parse.quote(os.environ['CI_POSTGRES_PASSWORD'], safe=''))")
+          echo "DATABASE_URL=postgresql+psycopg2://${CI_POSTGRES_USER}:${ENC}@127.0.0.1:5432/${CI_POSTGRES_DB}" >> "$GITHUB_ENV"
+      - run: poetry run alembic upgrade head
+      - run: poetry run pytest -v --cov=app --cov-report=term-missing --cov-fail-under=80
+
+  release:
+    name: Create GitHub Release
+    needs: [frontend, frontend-tests, backend]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
       - name: Generate changelog
         run: |
           echo "## Changes" > RELEASE_NOTES.md

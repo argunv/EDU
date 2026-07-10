@@ -3,6 +3,7 @@ from fastapi.testclient import TestClient
 
 from app.deps import get_db
 from app.main import app
+from app.routers import health as health_router
 
 
 @pytest.fixture
@@ -10,6 +11,13 @@ def app_client() -> TestClient:
     """HTTP client without conftest db fixture (for tests that override get_db)."""
     with TestClient(app) as c:
         yield c
+
+
+@pytest.fixture(autouse=True)
+def _ready_deps_ok(monkeypatch):
+    """CI/local pytest usually has no Redis/RabbitMQ; readiness still asserts the contract."""
+    monkeypatch.setattr(health_router, "_check_redis", lambda: True)
+    monkeypatch.setattr(health_router, "_check_rabbitmq", lambda: True)
 
 
 def test_health(client: TestClient):
@@ -20,10 +28,15 @@ def test_health(client: TestClient):
 
 
 def test_ready(client: TestClient):
-    """Readiness endpoint checks db and returns ready."""
+    """Readiness endpoint checks db/redis/rabbitmq and returns ready."""
     res = client.get("/api/ready")
     assert res.status_code == 200
-    assert res.json() == {"status": "ready", "db": "ok"}
+    assert res.json() == {
+        "status": "ready",
+        "db": "ok",
+        "redis": "ok",
+        "rabbitmq": "ok",
+    }
 
 
 def test_ready_returns_503_when_db_check_fails(app_client: TestClient):
@@ -47,9 +60,20 @@ def test_ready_returns_503_when_db_check_fails(app_client: TestClient):
     try:
         res = app_client.get("/api/ready")
         assert res.status_code == 503
-        assert res.json() == {"status": "not_ready", "db": "error"}
+        body = res.json()
+        assert body["status"] == "not_ready"
+        assert body["db"] == "error"
+        assert body["redis"] == "ok"
+        assert body["rabbitmq"] == "ok"
     finally:
         app.dependency_overrides.pop(get_db, None)
+
+
+def test_ready_returns_503_when_redis_down(client: TestClient, monkeypatch):
+    monkeypatch.setattr(health_router, "_check_redis", lambda: False)
+    res = client.get("/api/ready")
+    assert res.status_code == 503
+    assert res.json()["redis"] == "error"
 
 
 def test_metrics_root_endpoint(app_client: TestClient):

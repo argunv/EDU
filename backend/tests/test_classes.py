@@ -17,8 +17,13 @@ def test_list_classes_unauthorized(client: TestClient):
     assert res.status_code == 401
 
 
+def test_list_classes_forbidden_for_student(client: TestClient, student_headers):
+    res = client.get("/api/classes", headers=student_headers)
+    assert res.status_code == 403
+
+
 def test_get_class(client: TestClient, auth_headers, class_1a):
-    res = client.get(f"/classes/{class_1a.id}", headers=auth_headers)
+    res = client.get(f"/api/classes/{class_1a.id}", headers=auth_headers)
     assert res.status_code == 200
     assert res.json()["id"] == str(class_1a.id)
     assert res.json()["name"] == "1A"
@@ -26,5 +31,5 @@ def test_get_class(client: TestClient, auth_headers, class_1a):
 
 
 def test_get_class_not_found(client: TestClient, auth_headers):
-    res = client.get(f"/classes/{uuid.uuid4()}", headers=auth_headers)
+    res = client.get(f"/api/classes/{uuid.uuid4()}", headers=auth_headers)
     assert res.status_code == 404

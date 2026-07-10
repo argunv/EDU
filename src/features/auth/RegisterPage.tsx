@@ -6,7 +6,7 @@ import { apiRegister } from '../../api/auth'
 import { ROLE_HOME } from '../../lib/roleHome'
 import { useAuth } from './useAuth'
 
-const MIN_LEN = 6
+const MIN_LEN = 8
 
 export function RegisterPage() {
   const [name, setName] = useState('')

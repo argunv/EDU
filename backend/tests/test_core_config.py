@@ -52,9 +52,25 @@ def test_validate_production_secrets_rejects_default_jwt(monkeypatch):
         validate_production_secrets()
 
 
+def test_validate_production_secrets_rejects_dev_jwt_alias(monkeypatch):
+    monkeypatch.setattr(config.settings, "environment", "production")
+    monkeypatch.setattr(config.settings, "jwt_secret", "dev-only-change-me")
+    with pytest.raises(ValueError, match="JWT_SECRET"):
+        validate_production_secrets()
+
+
+def test_validate_production_secrets_rejects_short_jwt(monkeypatch):
+    monkeypatch.setattr(config.settings, "environment", "production")
+    monkeypatch.setattr(config.settings, "jwt_secret", "short-but-not-default")
+    with pytest.raises(ValueError, match="JWT_SECRET"):
+        validate_production_secrets()
+
+
 def test_validate_production_secrets_rejects_default_postgres_in_url(monkeypatch):
     monkeypatch.setattr(config.settings, "environment", "production")
-    monkeypatch.setattr(config.settings, "jwt_secret", "safe-production-secret-x")
+    monkeypatch.setattr(
+        config.settings, "jwt_secret", "safe-production-secret-at-least-32-chars"
+    )
     monkeypatch.setattr(
         config.settings,
         "database_url",
@@ -66,7 +82,9 @@ def test_validate_production_secrets_rejects_default_postgres_in_url(monkeypatch
 
 def test_validate_production_secrets_rejects_guest_rabbitmq(monkeypatch):
     monkeypatch.setattr(config.settings, "environment", "production")
-    monkeypatch.setattr(config.settings, "jwt_secret", "safe-production-secret-x")
+    monkeypatch.setattr(
+        config.settings, "jwt_secret", "safe-production-secret-at-least-32-chars"
+    )
     monkeypatch.setattr(
         config.settings,
         "database_url",
@@ -81,9 +99,30 @@ def test_validate_production_secrets_rejects_guest_rabbitmq(monkeypatch):
         validate_production_secrets()
 
 
+def test_validate_production_secrets_rejects_example_rabbitmq_password(monkeypatch):
+    monkeypatch.setattr(config.settings, "environment", "production")
+    monkeypatch.setattr(
+        config.settings, "jwt_secret", "safe-production-secret-at-least-32-chars"
+    )
+    monkeypatch.setattr(
+        config.settings,
+        "database_url",
+        "postgresql+psycopg2://app:secret@db.example.com:5432/app",
+    )
+    monkeypatch.setattr(
+        config.settings,
+        "rabbitmq_url",
+        "amqp://edu_mq:edu_mq_dev_pass@rabbit:5672/",
+    )
+    with pytest.raises(ValueError, match="RABBITMQ_URL"):
+        validate_production_secrets()
+
+
 def test_validate_production_secrets_rejects_localhost_frontend(monkeypatch):
     monkeypatch.setattr(config.settings, "environment", "production")
-    monkeypatch.setattr(config.settings, "jwt_secret", "safe-production-secret-x")
+    monkeypatch.setattr(
+        config.settings, "jwt_secret", "safe-production-secret-at-least-32-chars"
+    )
     monkeypatch.setattr(
         config.settings,
         "database_url",
@@ -96,4 +135,24 @@ def test_validate_production_secrets_rejects_localhost_frontend(monkeypatch):
     )
     monkeypatch.setattr(config.settings, "frontend_url", "http://localhost:5173")
     with pytest.raises(ValueError, match="FRONTEND_URL"):
+        validate_production_secrets()
+
+
+def test_validate_production_secrets_rejects_http_frontend(monkeypatch):
+    monkeypatch.setattr(config.settings, "environment", "production")
+    monkeypatch.setattr(
+        config.settings, "jwt_secret", "safe-production-secret-at-least-32-chars"
+    )
+    monkeypatch.setattr(
+        config.settings,
+        "database_url",
+        "postgresql+psycopg2://app:secret@db.example.com:5432/app",
+    )
+    monkeypatch.setattr(
+        config.settings,
+        "rabbitmq_url",
+        "amqp://user:pass@rabbit:5672/",
+    )
+    monkeypatch.setattr(config.settings, "frontend_url", "http://school.example.com")
+    with pytest.raises(ValueError, match="https"):
         validate_production_secrets()

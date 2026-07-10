@@ -2,6 +2,9 @@ node_modules/
 dist/
 .env
 .env.*.local
+!.env.example
+!.env.production.example
+backups/
 .vite/
 *.tsbuildinfo
 .DS_Store
@@ -26,3 +29,5 @@ coverage/
 # Локальные черновики Markdown (например диплом/заметки), не для репозитория
 *.md.ignore
 *.log
+FrontendLintBuild.log
+BackendLintTest.log

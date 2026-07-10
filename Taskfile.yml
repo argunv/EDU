@@ -1,8 +1,9 @@
 version: "3"
 dotenv: [".env"]
 vars:
-  # --profile elk: Elasticsearch, Logstash, Kibana, vector-logs (см. README → Observability).
-  COMPOSE_DEV: "-f docker-compose.yml -f docker-compose.override.yml --profile elk"
+  # Dev: override + observability (Prometheus/Grafana) + ELK.
+  COMPOSE_DEV: "-f docker-compose.yml -f docker-compose.override.yml --profile observability --profile elk"
+  COMPOSE_PROD: "-f docker-compose.yml -f docker-compose.prod.yml"
 
 tasks:
   check:
@@ -29,19 +30,56 @@ tasks:
       docker compose run --rm test
 
   up:
-    desc: Start all services with docker-compose
+    desc: Start core services (без observability/ELK)
     cmd: docker compose up -d
+
+  up-prod:
+    desc: Production deploy via scripts/deploy.sh (check-env + migrate + health)
+    cmd: ./scripts/deploy.sh
+
+  deploy:
+    desc: Alias for up-prod
+    cmds:
+      - task: up-prod
+
+  status:
+    desc: Production compose status + health probes
+    cmd: ./scripts/status.sh
+
+  backup:
+    desc: Dump PostgreSQL + media into ./backups/
+    cmd: ./scripts/backup.sh
+
+  create-admin:
+    desc: Create/promote admin from ADMIN_* in .env (bcrypt via API container)
+    cmd: ./scripts/create-admin.sh
+
+  tunnel:
+    desc: Start public HTTPS tunnel to local :80 (localtunnel)
+    cmd: ./scripts/tunnel.sh start
+
+  tunnel-stop:
+    desc: Stop public tunnel
+    cmd: ./scripts/tunnel.sh stop
+
+  tunnel-status:
+    desc: Show public tunnel status / URL
+    cmd: ./scripts/tunnel.sh status
 
   down:
     desc: Stop all services
     cmd: docker compose down -v
+
+  down-prod:
+    desc: Stop production stack (keeps volumes)
+    cmd: docker compose {{.COMPOSE_PROD}} down
 
   build:
     desc: Build all services
     cmd: docker compose build
 
   dev:
-    desc: Полный сброс и подъём в dev-режиме — clear, down -v, build, up (Prometheus/Grafana + ELK), ожидание healthchecks, seed, migrate (backfill-safe)
+    desc: Полный сброс и подъём в dev — clear, down -v, build, up (observability + ELK), healthchecks, деструктивный seed, migrate
     cmd: |
       clear || true
       docker compose {{.COMPOSE_DEV}} down -v
@@ -50,7 +88,7 @@ tasks:
       # --wait: дождаться healthy (api, ES, Logstash, …); первый старт ELK может занять несколько минут.
       docker compose {{.COMPOSE_DEV}} up -d --wait --wait-timeout 600 postgres redis rabbitmq api web nginx notifier frontend-watch prometheus grafana elasticsearch logstash kibana vector-logs
       # Seed наполняет legacy-таблицы. Backfill (008) читает их, поэтому сначала докатываемся только до 007.
-      docker compose {{.COMPOSE_DEV}} run --rm automigrate sh -c "pip install alembic && sleep 5 && alembic upgrade 007"
+      docker compose {{.COMPOSE_DEV}} run --rm automigrate sh -c "alembic upgrade 007"
       docker compose {{.COMPOSE_DEV}} exec -T postgres psql -U "{{.POSTGRES_USER}}" -d "{{.POSTGRES_DB}}" < backend/scripts/seed_dev.sql
       # После seed докатываемся до head: выполняется 008 backfill и 010 integrity hardening.
       docker compose {{.COMPOSE_DEV}} run --rm automigrate
@@ -58,13 +96,3 @@ tasks:
   dbdown:
     desc: Remove all data from database using truncate
     cmd: psql "postgresql://{{.POSTGRES_USER}}:{{.POSTGRES_PASSWORD}}@localhost:5432/{{.POSTGRES_DB}}" -c "DO \$\$ DECLARE r RECORD; BEGIN FOR r IN (SELECT tablename FROM pg_tables WHERE schemaname = current_schema()) LOOP EXECUTE 'TRUNCATE TABLE ' || quote_ident(r.tablename) || ' RESTART IDENTITY CASCADE;'; END LOOP; END \$\$;"
-
-  create-admin:
-    desc: Creates admin from .env variables ADMIN_EMAIL, ADMIN_NAME, ADMIN_PASSWORD
-    cmd: |
-      E=$(grep '^ADMIN_EMAIL=' .env | cut -d= -f2- | tr -d '"' | xargs)
-      N=$(grep '^ADMIN_NAME=' .env | cut -d= -f2- | tr -d '"' | xargs)
-      N=$(echo "$N" | sed "s/'/''/g")
-      P=$(grep '^ADMIN_PASSWORD=' .env | cut -d= -f2- | tr -d '"' | xargs)
-      H=$(htpasswd -nbBC 10 "" "$P" | sed 's/^.*://' | sed 's/\$2y/\$2b/')
-      printf 'INSERT INTO users (id, email, password_hash, name, role) VALUES (gen_random_uuid(), lower('\''%s'\''), '\''%s'\'', '\''%s'\'', '\''admin'\'') ON CONFLICT (email) DO UPDATE SET role = '\''admin'\'', password_hash = EXCLUDED.password_hash, name = EXCLUDED.name;\n' "$E" "$H" "$N" | docker compose exec -T postgres psql -U "{{.POSTGRES_USER}}" -d "{{.POSTGRES_DB}}"
