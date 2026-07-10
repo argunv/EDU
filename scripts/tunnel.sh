@@ -234,16 +234,30 @@ cmd_stop() {
       kill -9 "$sup" 2>/dev/null || true
     fi
   fi
-  pkill -f 'localtunnel|npx --package=localtunnel|lt --port 80' 2>/dev/null || true
-  pkill -f 'cloudflared tunnel --url' 2>/dev/null || true
-  pkill -f 'ngrok http 80' 2>/dev/null || true
-  # Also stop any leftover supervise copies of this script
-  pkill -f 'scripts/tunnel.sh _supervise' 2>/dev/null || true
+  if is_pid_alive "$(cat "$CHILD_PID_FILE" 2>/dev/null || true)"; then
+    kill "$(cat "$CHILD_PID_FILE")" 2>/dev/null || true
+  fi
   rm -f "$PID_FILE" "$CHILD_PID_FILE"
   echo "Tunnel stopped."
 }
 
 cmd_start() {
+  if [[ -f .env ]] && python3 - <<'PY'
+from pathlib import Path
+
+values = {}
+for raw in Path(".env").read_text(encoding="utf-8").splitlines():
+    line = raw.strip()
+    if not line or line.startswith("#") or "=" not in line:
+        continue
+    key, value = line.split("=", 1)
+    values[key.strip()] = value.strip().strip("'\"")
+raise SystemExit(0 if values.get("ENVIRONMENT", "").lower() == "production" else 1)
+PY
+  then
+    echo "Refusing to modify a production .env; configure a named Cloudflare Tunnel separately" >&2
+    exit 1
+  fi
   ensure_local_stack
   if is_running; then
     echo "Already running: $(read_url)"
@@ -251,9 +265,11 @@ cmd_start() {
     exit 0
   fi
 
-  # Clean orphans from previous runs
-  pkill -f 'scripts/tunnel.sh _supervise' 2>/dev/null || true
-  pkill -f 'lt --port 80|npx --package=localtunnel' 2>/dev/null || true
+  # Clean only the process recorded by this script.
+  if is_pid_alive "$(cat "$CHILD_PID_FILE" 2>/dev/null || true)"; then
+    kill "$(cat "$CHILD_PID_FILE")" 2>/dev/null || true
+  fi
+  rm -f "$PID_FILE" "$CHILD_PID_FILE" "$URL_FILE"
 
   echo "Starting tunnel supervisor ($PROVIDER)..."
   : > "$SUP_LOG"
