@@ -40,7 +40,7 @@ def _student_parent_names(db: Session, user_id) -> list[str] | None:
     return names or None
 
 
-def _parent_children(db: Session, user_id) -> list[ProfileChildItem] | None:
+def _profile_child_items_for_parent(db: Session, user_id) -> list[ProfileChildItem] | None:
     child_ids = get_parent_child_ids(db, user_id)
     if not child_ids:
         return None
@@ -100,7 +100,7 @@ def build_profile_response(db: Session, user: User) -> ProfileResponse:
         class_name = _student_class_name(db, user.id)
         parent_names = _student_parent_names(db, user.id)
     elif role == "parent":
-        children = _parent_children(db, user.id)
+        children = _profile_child_items_for_parent(db, user.id)
     elif role == "teacher":
         assignments = _teacher_assignments(db, user.id)
 
