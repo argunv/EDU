@@ -6,7 +6,7 @@ on:
       - "v*.*.*"
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   frontend:
@@ -42,13 +42,13 @@ jobs:
       postgres:
         image: postgres:16-alpine
         env:
-          POSTGRES_USER: ${{ vars.CI_POSTGRES_USER }}
-          POSTGRES_PASSWORD: ${{ secrets.CI_POSTGRES_PASSWORD }}
-          POSTGRES_DB: ${{ vars.CI_POSTGRES_DB }}
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: abh_edu_test
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready"
+          --health-cmd "pg_isready -U postgres -d abh_edu_test"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
@@ -56,6 +56,8 @@ jobs:
       run:
         working-directory: backend
     env:
+      DATABASE_URL: postgresql+psycopg2://postgres:postgres@127.0.0.1:5432/abh_edu_test
+      JWT_SECRET: ci-secret-at-least-32-bytes-long
       RATE_LIMIT_FAIL_CLOSED: "false"
     steps:
       - uses: actions/checkout@v4
@@ -65,14 +67,6 @@ jobs:
       - run: pip install poetry
       - run: poetry install --with dev
       - run: poetry run flake8 app tests && poetry run bandit -r app
-      - name: Configure DATABASE_URL
-        env:
-          CI_POSTGRES_USER: ${{ vars.CI_POSTGRES_USER }}
-          CI_POSTGRES_DB: ${{ vars.CI_POSTGRES_DB }}
-          CI_POSTGRES_PASSWORD: ${{ secrets.CI_POSTGRES_PASSWORD }}
-        run: |
-          ENC=$(python3 -c "import urllib.parse, os; print(urllib.parse.quote(os.environ['CI_POSTGRES_PASSWORD'], safe=''))")
-          echo "DATABASE_URL=postgresql+psycopg2://${CI_POSTGRES_USER}:${ENC}@127.0.0.1:5432/${CI_POSTGRES_DB}" >> "$GITHUB_ENV"
       - run: poetry run alembic upgrade head
       - run: poetry run pytest -v --cov=app --cov-report=term-missing --cov-fail-under=80
 
@@ -80,6 +74,8 @@ jobs:
     name: Create GitHub Release
     needs: [frontend, frontend-tests, backend]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - name: Generate changelog

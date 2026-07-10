@@ -24,4 +24,5 @@ BackendLintTest.log
 docs
 deploy/systemd
 backend/tests
+!backend/tests/**
 backend/.venv

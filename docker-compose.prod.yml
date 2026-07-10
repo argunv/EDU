@@ -15,6 +15,9 @@ services:
     environment:
       ENVIRONMENT: production
       RATE_LIMIT_FAIL_CLOSED: "true"
+    depends_on:
+      automigrate:
+        condition: service_completed_successfully
 
   notifier:
     environment:
@@ -26,6 +29,6 @@ services:
 
   nginx:
     ports:
-      - "${NGINX_HOST_PORT:-80}:80"
+      - "${NGINX_HOST_PORT:-127.0.0.1:80}:80"
     volumes:
       - ./deploy/nginx/nginx.prod.conf:/etc/nginx/nginx.conf:ro

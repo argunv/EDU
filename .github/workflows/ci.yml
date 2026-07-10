@@ -5,6 +5,9 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   frontend:
     name: Frontend Lint/Build
@@ -53,13 +56,13 @@ jobs:
       postgres:
         image: postgres:16-alpine
         env:
-          POSTGRES_USER: ${{ vars.CI_POSTGRES_USER }}
-          POSTGRES_PASSWORD: ${{ secrets.CI_POSTGRES_PASSWORD }}
-          POSTGRES_DB: ${{ vars.CI_POSTGRES_DB }}
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: abh_edu_test
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready"
+          --health-cmd "pg_isready -U postgres -d abh_edu_test"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
@@ -67,6 +70,8 @@ jobs:
       run:
         working-directory: backend
     env:
+      DATABASE_URL: postgresql+psycopg2://postgres:postgres@127.0.0.1:5432/abh_edu_test
+      JWT_SECRET: ci-secret-at-least-32-bytes-long
       RATE_LIMIT_FAIL_CLOSED: "false"
     steps:
       - uses: actions/checkout@v4
@@ -79,15 +84,30 @@ jobs:
         run: poetry install --with dev
       - name: Lint
         run: poetry run flake8 app tests && poetry run bandit -r app
-      - name: Configure DATABASE_URL
-        env:
-          CI_POSTGRES_USER: ${{ vars.CI_POSTGRES_USER }}
-          CI_POSTGRES_DB: ${{ vars.CI_POSTGRES_DB }}
-          CI_POSTGRES_PASSWORD: ${{ secrets.CI_POSTGRES_PASSWORD }}
-        run: |
-          ENC=$(python3 -c "import urllib.parse, os; print(urllib.parse.quote(os.environ['CI_POSTGRES_PASSWORD'], safe=''))")
-          echo "DATABASE_URL=postgresql+psycopg2://${CI_POSTGRES_USER}:${ENC}@127.0.0.1:5432/${CI_POSTGRES_DB}" >> "$GITHUB_ENV"
       - name: Apply DB migrations
         run: poetry run alembic upgrade head
       - name: Test
         run: poetry run pytest -v --cov=app --cov-report=term-missing --cov-fail-under=80
+
+  production-artifacts:
+    name: Production Docker/Compose
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate deployment configuration
+        run: |
+          cp .env.example .env
+          docker compose -f docker-compose.yml -f docker-compose.override.yml config --quiet
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml config --quiet
+          bash -n scripts/*.sh backend/run_migrate.sh
+      - name: Build production images
+        run: |
+          docker build --target api -t abh-edu-api:ci .
+          docker build --target web -t abh-edu-web:ci .
+          docker build --target notifier -t abh-edu-notifier:ci .
+      - name: Verify runtime image contents
+        run: |
+          docker run --rm abh-edu-api:ci sh -c 'test ! -d /app/tests && ! command -v poetry'
+          docker run --rm abh-edu-web:ci nginx -t

@@ -46,7 +46,7 @@ describe('routing and boundaries', () => {
           accessToken: 't',
           ready: true,
           login: async () => {},
-          logout: () => {},
+          logout: async () => {},
           setUserFromToken: () => {},
           updateUser: () => {},
         }}
@@ -73,7 +73,7 @@ describe('routing and boundaries', () => {
           accessToken: 't',
           ready: true,
           login: async () => {},
-          logout: () => {},
+          logout: async () => {},
           setUserFromToken: () => {},
           updateUser: () => {},
         }}
@@ -100,7 +100,7 @@ describe('routing and boundaries', () => {
           accessToken: 't',
           ready: true,
           login: async () => {},
-          logout: () => {},
+          logout: async () => {},
           setUserFromToken: () => {},
           updateUser: () => {},
         }}
@@ -127,7 +127,7 @@ describe('routing and boundaries', () => {
           accessToken: 't',
           ready: true,
           login: async () => {},
-          logout: () => {},
+          logout: async () => {},
           setUserFromToken: () => {},
           updateUser: () => {},
         }}
@@ -154,7 +154,7 @@ describe('routing and boundaries', () => {
           accessToken: 't',
           ready: true,
           login: async () => {},
-          logout: () => {},
+          logout: async () => {},
           setUserFromToken: () => {},
           updateUser: () => {},
         }}
