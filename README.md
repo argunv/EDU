@@ -9,7 +9,7 @@
 | Infra | PostgreSQL, Redis, RabbitMQ, Docker Compose, nginx |
 | Email | Notifier (RabbitMQ → SMTP) для сброса пароля |
 
-**Требования:** Node **22.12.0** (см. `.nvmrc`), Docker Compose v2, опционально [Task](https://taskfile.dev) и Poetry 3.12.
+**Требования:** Node **22.12.0** (см. `.nvmrc`), Docker Compose v2, Python **3.12**, опционально [Task](https://taskfile.dev) и Poetry. На production-сервере нужен `flock` (`util-linux`) для сериализации операций.
 
 ---
 
@@ -142,11 +142,21 @@ cp .env.production.example .env
 Обновление: `./scripts/deploy.sh` или `./scripts/deploy.sh --pull main`.
 
 - Без `docker-compose.override.yml` и без seed.
-- TLS — на reverse proxy перед nginx (`NGINX_HOST_PORT`, по умолчанию 80).
-- Бэкапы: `./scripts/backup.sh` → `./backups/`.
+- TLS — на reverse proxy/Cloudflare перед nginx (`NGINX_HOST_PORT` по умолчанию `127.0.0.1:80`).
+- Cloudflare Tunnel: `NGINX_HOST_PORT=127.0.0.1:80`, public hostname → `http://localhost:80`.
+- Бэкапы: `./scripts/backup.sh`; проверяемое восстановление пары DB/media: `./scripts/restore.sh`.
 
 Шаблон env: [`.env.production.example`](.env.production.example).  
 API не стартует с дефолтными секретами при `ENVIRONMENT=production`.
+
+---
+
+## Ограничения MVP
+
+- Один сервер и один экземпляр каждого application-сервиса; горизонтальное масштабирование не настроено.
+- `shift` поддерживается существующими контрактами и фильтрами, но полноценный UI сложного двухсменного планирования не заявлен.
+- Email-notifier зависит от внешнего SMTP; bounded retry/DLQ для временных SMTP-ошибок пока не реализованы, ошибка логируется. Observability/ELK опциональны.
+- Seed полностью перезаписывает данные и допустим только в dev/demo.
 
 ---
 
@@ -196,7 +206,7 @@ cp .env.example .env
 | `CORS_ORIGINS` | JSON-массив origin’ов |
 | `SMTP_*` | Почта для сброса пароля |
 | `VITE_API_URL` | Обычно не задавать (`/api` + proxy Vite); в Docker-сборке уже `/api` |
-| `NGINX_HOST_PORT` | Порт nginx на хосте (по умолчанию 80) |
+| `NGINX_HOST_PORT` | Публикация nginx на хосте; в production example — `127.0.0.1:80` |
 
 `FRONTEND_URL` — то, что открывает пользователь в браузере (`http://localhost` или `https://…`), **не** имя Docker-сервиса.
 
