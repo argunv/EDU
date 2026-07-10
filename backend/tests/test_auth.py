@@ -19,6 +19,16 @@ def test_register(client: TestClient):
     assert "access_token" in data
     assert data["user"]["email"] == "new@test.com"
     assert data["user"]["role"] == "pending"
+    # Pending registration must not create a refresh session.
+    assert "refresh_token" not in res.cookies
+
+
+def test_register_rejects_short_password(client: TestClient):
+    res = client.post(
+        "/auth/register",
+        json={"name": "Short", "email": "short@test.com", "password": "1234567"},
+    )
+    assert res.status_code == 422
 
 
 def test_register_duplicate_email(client: TestClient, db):

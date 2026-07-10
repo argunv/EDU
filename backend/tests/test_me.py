@@ -37,6 +37,30 @@ def test_me_children_parent(client: TestClient, parent_headers, student_user, cl
     data = res.json()
     assert len(data) >= 1
     assert any(c["id"] == str(student_user.id) for c in data)
+    assert "avatar_url" in data[0]
+
+
+def test_me_children_includes_avatar_url_when_set(
+    client: TestClient, db, parent_headers, student_user, class_1a, tmp_path, monkeypatch
+):
+    from app.core.config import settings
+    from app.services.avatar_storage import save_avatar_from_bytes
+    import io
+    from PIL import Image
+
+    monkeypatch.setattr(settings, "media_root", str(tmp_path))
+    buf = io.BytesIO()
+    Image.new("RGB", (64, 64), color="red").save(buf, format="PNG")
+    student_user.avatar_path = save_avatar_from_bytes(
+        student_user.id, buf.getvalue(), "image/png"
+    )
+    db.commit()
+
+    res = client.get("/api/me/children", headers=parent_headers)
+    assert res.status_code == 200
+    child = next(c for c in res.json() if c["id"] == str(student_user.id))
+    assert child["avatar_url"] is not None
+    assert "/api/media/avatars/" in child["avatar_url"]
 
 
 def test_me_children_unauthorized(client: TestClient):

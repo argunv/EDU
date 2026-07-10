@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import Column, String, DateTime, ForeignKey
+from sqlalchemy import Column, String, Date, DateTime, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
@@ -22,6 +22,10 @@ class User(Base):
     # pending, rejected, teacher, student, parent, admin
     role = Column(String(20), nullable=False, default="pending")
     created_at = Column(DateTime(timezone=True), default=now)
+    phone = Column(String(32), nullable=True)
+    birth_date = Column(Date, nullable=True)
+    last_login_at = Column(DateTime(timezone=True), nullable=True)
+    avatar_path = Column(String(512), nullable=True)
     class_id = Column(
         UUID(as_uuid=True), ForeignKey("classes.id"), nullable=True
     )  # ученик: денормализация в паре с ClassEnrollment (канон — enrollment)

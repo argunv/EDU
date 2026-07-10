@@ -50,7 +50,7 @@ services:
       context: .
       dockerfile: Dockerfile
       target: api
-    command: sh -c "pip install alembic && sleep 5 && sh /app/run_migrate.sh"
+    command: sh /app/run_migrate.sh
     environment:
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
     depends_on:
@@ -117,9 +117,13 @@ services:
       timeout: 5s
       retries: 6
       start_period: 60s
+    volumes:
+      - media_data:/app/media
     restart: unless-stopped
 
   prometheus:
+    profiles:
+      - observability
     image: prom/prometheus:v2.55.0
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
@@ -133,7 +137,14 @@ services:
     restart: unless-stopped
 
   grafana:
+    profiles:
+      - observability
     image: grafana/grafana:11.2.0
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-change-me-set-in-env}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
     volumes:
       - grafana_data:/var/lib/grafana
       - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
@@ -249,12 +260,15 @@ services:
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
-      - api
-      - web
+      api:
+        condition: service_healthy
+      web:
+        condition: service_started
     restart: unless-stopped
 
 volumes:
   pg_data: {}
+  media_data: {}
   prometheus_data: {}
   grafana_data: {}
   es_data: {}

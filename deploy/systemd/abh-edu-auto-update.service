@@ -1,0 +1,15 @@
+[Unit]
+Description=ABH Edu auto-update (oneshot)
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/abh-edu
+# Adjust path to your checkout:
+ExecStart=/opt/abh-edu/scripts/auto_update.sh main
+# Load production env for compose (optional if .env is in WorkingDirectory):
+# EnvironmentFile=/opt/abh-edu/.env
+
+[Install]
+WantedBy=multi-user.target
