@@ -1,8 +1,7 @@
-from datetime import date
-
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import or_
 
+from app.core.timeutil import app_today
 from app.deps import CurrentUser, DbSession
 from app.models.user import User
 from app.models.class_model import Class
@@ -37,7 +36,7 @@ def list_students(
         class_ids = get_teacher_class_ids(db, current_user.id)
         if not class_ids:
             return []
-        today = date.today()
+        today = app_today()
         student_ids_query = (
             student_ids_query.join(Class, Class.id == ClassEnrollment.class_id)
             .filter(
@@ -51,7 +50,7 @@ def list_students(
             )
         )
     else:
-        today = date.today()
+        today = app_today()
         student_ids_query = (
             student_ids_query.join(Class, Class.id == ClassEnrollment.class_id)
             .filter(

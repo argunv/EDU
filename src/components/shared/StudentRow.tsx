@@ -19,9 +19,9 @@ export function StudentRow({
   onGradeChange,
 }: StudentRowProps) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
-      <div className="mb-3 text-base font-semibold text-slate-900">{name}</div>
-      <div className="grid grid-cols-[repeat(6,3rem)_minmax(0,1fr)] items-center gap-1">
+    <div className="rounded-xl border border-border bg-card p-3 shadow-sm">
+      <div className="mb-3 text-base font-semibold text-foreground">{name}</div>
+      <div className="grid grid-cols-6 items-center gap-1">
         {gradeOptions.map((option) => {
           const isActive = grade === option
           return (
@@ -29,10 +29,12 @@ export function StudentRow({
               key={option ?? 'none'}
               type="button"
               onClick={() => onGradeChange(option)}
+              aria-label={option === null ? 'Без оценки' : `Оценка ${option}`}
+              aria-pressed={isActive}
               className={`h-12 w-12 rounded-lg border text-base font-semibold ${
                 isActive
-                  ? 'border-slate-900 bg-slate-900 text-white'
-                  : 'border-slate-200 bg-white text-slate-900'
+                  ? 'border-primary bg-primary text-primary-foreground'
+                  : 'border-border bg-card text-foreground hover:bg-accent'
               }`}
             >
               {option ?? '—'}
@@ -40,11 +42,6 @@ export function StudentRow({
           )
         })}
         <AttendanceToggle value={attendance} onChange={onAttendanceChange} />
-        <input
-          type="text"
-          placeholder="Комментарий"
-          className="h-12 w-full rounded-lg border border-slate-200 px-2 text-sm text-slate-900"
-        />
       </div>
     </div>
   )

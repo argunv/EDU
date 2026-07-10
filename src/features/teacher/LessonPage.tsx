@@ -3,31 +3,58 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 
-import { getTeacherLessons, submitGrades } from '../../api/teacher'
+import { getLessonStudents, getTeacherLessons, submitGrades } from '../../api/teacher'
 import { PageHeader } from '../../components/layout/PageHeader'
-import type { Lesson } from '../../types/lesson'
+import { StudentRow } from '../../components/shared/StudentRow'
+import type { Attendance, Grade, Lesson, LessonStudent } from '../../types/lesson'
 
 function LessonEditor({
   lesson,
   lessonId,
+  students,
 }: {
   lesson: Lesson
   lessonId: string
+  students: LessonStudent[]
 }) {
   const queryClient = useQueryClient()
   const [topic, setTopic] = useState(() => lesson.topic ?? '')
   const [homework, setHomework] = useState(() => lesson.homeworkText ?? '')
+  const [drafts, setDrafts] = useState(() => students)
+  const [saved, setSaved] = useState(() => ({
+    topic: lesson.topic ?? '',
+    homework: lesson.homeworkText ?? '',
+    students,
+  }))
 
   const isDirty = useMemo(() => {
-    const topicDirty = topic !== (lesson.topic ?? '')
-    const homeworkDirty = homework !== (lesson.homeworkText ?? '')
-    return topicDirty || homeworkDirty
-  }, [topic, homework, lesson.topic, lesson.homeworkText])
+    const entriesDirty = drafts.some((draft, index) => {
+      const previous = saved.students[index]
+      return (
+        !previous ||
+        previous.studentId !== draft.studentId ||
+        previous.attendance !== draft.attendance ||
+        previous.grade !== draft.grade
+      )
+    })
+    return (
+      topic !== saved.topic ||
+      homework !== saved.homework ||
+      drafts.length !== saved.students.length ||
+      entriesDirty
+    )
+  }, [drafts, homework, saved, topic])
 
   const saveMutation = useMutation({
     mutationFn: submitGrades,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['teacher', 'lessons'] })
+      queryClient.invalidateQueries({ queryKey: ['teacher', 'lesson-students', lessonId] })
+      setSaved({
+        topic,
+        homework,
+        students: drafts.map((student) => ({ ...student })),
+      })
       toast.success('Сохранено')
     },
     onError: () => {
@@ -38,10 +65,21 @@ function LessonEditor({
   const handleSave = () => {
     saveMutation.mutate({
       lessonId,
-      entries: [],
+      entries: drafts,
       topic: topic.trim() || null,
       homeworkText: homework.trim() || null,
     })
+  }
+
+  const updateStudent = (
+    studentId: string,
+    patch: { attendance?: Attendance; grade?: Grade },
+  ) => {
+    setDrafts((current) =>
+      current.map((student) =>
+        student.studentId === studentId ? { ...student, ...patch } : student,
+      ),
+    )
   }
 
   return (
@@ -51,23 +89,47 @@ function LessonEditor({
           value={topic}
           onChange={(event) => setTopic(event.target.value)}
           placeholder="Тема урока (опционально)"
-          className="h-12 w-full rounded-lg border border-slate-200 px-3 text-base"
+          aria-label="Тема урока"
+          className="h-12 w-full rounded-lg border border-input bg-background px-3 text-base text-foreground"
         />
         <input
           value={homework}
           onChange={(event) => setHomework(event.target.value)}
           placeholder="Домашнее задание (опционально)"
-          className="h-12 w-full rounded-lg border border-slate-200 px-3 text-base"
+          aria-label="Домашнее задание"
+          className="h-12 w-full rounded-lg border border-input bg-background px-3 text-base text-foreground"
         />
       </div>
 
-      <div className="fixed inset-x-0 bottom-0 border-t border-slate-200 bg-white px-4 py-3">
+      <section className="grid gap-3" aria-labelledby="lesson-students-title">
+        <h2 id="lesson-students-title" className="text-lg font-semibold text-foreground">
+          Ученики
+        </h2>
+        {drafts.length ? (
+          drafts.map((student) => (
+            <StudentRow
+              key={student.studentId}
+              name={student.name}
+              attendance={student.attendance}
+              grade={student.grade}
+              onAttendanceChange={(attendance) =>
+                updateStudent(student.studentId, { attendance })
+              }
+              onGradeChange={(grade) => updateStudent(student.studentId, { grade })}
+            />
+          ))
+        ) : (
+          <p className="text-sm text-muted-foreground">В классе нет учеников.</p>
+        )}
+      </section>
+
+      <div className="fixed inset-x-0 bottom-0 border-t border-border bg-background/95 px-4 py-3 backdrop-blur">
         <div className="mx-auto w-full max-w-2xl">
           <button
             type="button"
             onClick={handleSave}
             disabled={saveMutation.isPending || !isDirty}
-            className="h-12 w-full rounded-lg bg-slate-900 text-base font-semibold text-white disabled:opacity-50"
+            className="h-12 w-full rounded-lg bg-primary text-base font-semibold text-primary-foreground disabled:opacity-50"
           >
             {saveMutation.isPending ? 'Сохранение…' : isDirty ? 'Сохранить' : 'Сохранено'}
           </button>
@@ -99,6 +161,11 @@ export function LessonPage() {
     () => lessons?.find((item) => item.id === lessonId),
     [lessons, lessonId],
   )
+  const studentsQuery = useQuery({
+    queryKey: ['teacher', 'lesson-students', lessonId],
+    queryFn: () => getLessonStudents(lessonId ?? ''),
+    enabled: Boolean(lessonId && lesson),
+  })
 
   if (isLoading) {
     return (
@@ -149,7 +216,27 @@ export function LessonPage() {
         backTo="/teacher/today"
       />
 
-      <LessonEditor key={lesson.id} lesson={lesson} lessonId={lessonId} />
+      {studentsQuery.isLoading ? (
+        <p className="text-sm text-muted-foreground">Загрузка учеников...</p>
+      ) : studentsQuery.isError ? (
+        <div className="grid gap-3">
+          <p className="text-sm text-destructive">Не удалось загрузить список учеников.</p>
+          <button
+            type="button"
+            onClick={() => void studentsQuery.refetch()}
+            className="h-11 rounded-lg bg-primary text-sm font-semibold text-primary-foreground"
+          >
+            Повторить
+          </button>
+        </div>
+      ) : (
+        <LessonEditor
+          key={lesson.id}
+          lesson={lesson}
+          lessonId={lessonId}
+          students={studentsQuery.data ?? []}
+        />
+      )}
     </div>
   )
 }

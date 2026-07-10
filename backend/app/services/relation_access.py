@@ -4,6 +4,7 @@ from uuid import UUID
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
+from app.core.timeutil import app_today
 from app.models.class_model import Class
 from app.models.role_profiles import (
     ClassEnrollment,
@@ -14,7 +15,7 @@ from app.models.role_profiles import (
 
 
 def get_active_student_ids_for_class(db: Session, class_id: UUID) -> list[UUID]:
-    today = date.today()
+    today = app_today()
     enrollment_ids = [
         row[0]
         for row in db.query(ClassEnrollment.student_user_id)
@@ -87,7 +88,7 @@ def has_user_role(db: Session, user_id: UUID, role: str) -> bool:
 def get_active_enrollment(
     db: Session, student_user_id: UUID, on_date: date | None = None
 ) -> ClassEnrollment | None:
-    dt = on_date or date.today()
+    dt = on_date or app_today()
     return (
         db.query(ClassEnrollment)
         .filter(

@@ -15,4 +15,8 @@ describe('userDisplay', () => {
   it('getInitials uses first letters of last and first name', () => {
     expect(getInitials('Иванов Петр')).toBe('ИП')
   })
+
+  it('getInitials ignores punctuation around display labels', () => {
+    expect(getInitials('Администратор (демо)')).toBe('АД')
+  })
 })

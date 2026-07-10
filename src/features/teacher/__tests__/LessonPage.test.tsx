@@ -23,6 +23,10 @@ function lessonsHandler(rows: Array<Record<string, unknown>>) {
   return http.get('/api/teacher/lessons', () => HttpResponse.json(rows))
 }
 
+function lessonStudentsHandler(rows: Array<Record<string, unknown>> = []) {
+  return http.get('/api/teacher/lessons/:lessonId/students', () => HttpResponse.json(rows))
+}
+
 afterEach(() => {
   configureAuth({
     getToken: () => null,
@@ -57,6 +61,14 @@ describe('LessonPage', () => {
           homework_text: null,
         },
       ]),
+      lessonStudentsHandler([
+        {
+          student_id: 'student-1',
+          name: 'Иванов Иван',
+          attendance: 'present',
+          grade: null,
+        },
+      ]),
       http.post('/api/teacher/lessons/grades', async ({ request }) => {
         posted = (await request.json()) as Record<string, unknown>
         return HttpResponse.json({ success: true })
@@ -71,16 +83,24 @@ describe('LessonPage', () => {
     )
 
     expect(await screen.findByText('Математика')).toBeInTheDocument()
+    expect(await screen.findByText('Иванов Иван')).toBeInTheDocument()
     fireEvent.change(screen.getByPlaceholderText('Домашнее задание (опционально)'), {
       target: { value: 'Упражнение 12' },
     })
+    fireEvent.click(screen.getByRole('button', { name: 'Оценка 5' }))
     fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
 
     await waitFor(() => {
       expect(posted).not.toBeNull()
       expect(posted?.lesson_id).toBe('les-1')
       expect(posted?.homework_text).toBe('Упражнение 12')
-      expect(posted?.entries).toEqual([])
+      expect(posted?.entries).toEqual([
+        {
+          student_id: 'student-1',
+          attendance: 'present',
+          grade: 5,
+        },
+      ])
     })
     await waitFor(() => {
       expect(toast.success).toHaveBeenCalledWith('Сохранено')
@@ -101,6 +121,7 @@ describe('LessonPage', () => {
           homework_text: null,
         },
       ]),
+      lessonStudentsHandler(),
       http.post('/api/teacher/lessons/grades', () => HttpResponse.json({ detail: 'err' }, { status: 500 })),
     )
 
@@ -112,6 +133,7 @@ describe('LessonPage', () => {
     )
 
     expect(await screen.findByText('Физика')).toBeInTheDocument()
+    expect(await screen.findByText('В классе нет учеников.')).toBeInTheDocument()
     fireEvent.change(screen.getByPlaceholderText('Тема урока (опционально)'), {
       target: { value: 'Законы Ньютона' },
     })
@@ -135,6 +157,7 @@ describe('LessonPage', () => {
           homework_text: 'Читать п. 2',
         },
       ]),
+      lessonStudentsHandler(),
     )
 
     renderWithProviders(
@@ -145,6 +168,7 @@ describe('LessonPage', () => {
     )
 
     expect(await screen.findByText('История')).toBeInTheDocument()
+    expect(await screen.findByText('В классе нет учеников.')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Сохранено' })).toBeDisabled()
   })
 
