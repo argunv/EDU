@@ -73,6 +73,11 @@ class Settings(BaseSettings):
     rate_limit_reset: str = "5/60"
     rate_limit_fail_closed: bool = True
 
+    # User-generated media (avatars, school logos) — local filesystem volume in Docker.
+    media_root: str = "/app/media"
+    avatar_max_bytes: int = 5 * 1024 * 1024
+    avatar_output_size_px: int = 256
+
     @field_validator("app_timezone")
     @classmethod
     def timezone_must_be_valid_iana(cls, v: str) -> str:

@@ -171,6 +171,7 @@ def login(
             detail="Неверный логин или пароль",
         )
     _ensure_login_or_refresh_allowed(db, user)
+    user.last_login_at = now()
     raw_refresh, _ = create_refresh_token(db, user.id)
     access = create_access_token(str(user.id))
     _set_refresh_cookie(request, response, raw_refresh)
