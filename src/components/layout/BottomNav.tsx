@@ -11,7 +11,11 @@ const NAV_ITEMS: Record<
   Role,
   Array<{ label: string; path: string; Icon: typeof CalendarDays }>
 > = {
-  teacher: [{ label: 'Сегодня', path: '/teacher/today', Icon: CalendarDays }],
+  teacher: [
+    { label: 'Сегодня', path: '/teacher/today', Icon: CalendarDays },
+    { label: 'Журнал', path: '/teacher/journal', Icon: BookOpen },
+    { label: 'Профиль', path: '/profile', Icon: UserCircle2 },
+  ],
   student: [
     { label: 'Расписание', path: '/me/schedule', Icon: CalendarDays },
     { label: 'ДЗ', path: '/me/homework', Icon: BookOpen },

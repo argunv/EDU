@@ -14,3 +14,14 @@ export function isNotFound(error: unknown): boolean {
   const response = (error as { response?: { status?: number } }).response
   return response?.status === 404
 }
+
+/** Текст ошибки из ответа API (axios) или fallback. */
+export function getApiErrorMessage(error: unknown, fallback: string): string {
+  if (error != null && typeof error === 'object') {
+    const detail = (error as { response?: { data?: { detail?: unknown } } }).response?.data
+      ?.detail
+    if (typeof detail === 'string' && detail.trim()) return detail
+  }
+  if (error instanceof Error && error.message) return error.message
+  return fallback
+}

@@ -2,7 +2,7 @@ import logging
 from datetime import date, timedelta
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, UploadFile, File
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
@@ -19,11 +19,21 @@ from app.schemas.me import (
     HomeworkItemResponse,
     SubjectProgressResponse,
 )
+from app.schemas.profile import (
+    ChangePasswordRequest,
+    OkResponse,
+    ProfileResponse,
+    ProfileUpdateRequest,
+)
+from app.services.auth import hash_password, verify_password, revoke_all_refresh_tokens_for_user
+from app.services.profile import build_profile_response
+from app.services.avatar_storage import delete_avatar_file, save_avatar_from_bytes
 from app.services.relation_access import (
     get_active_enrollment,
     get_parent_child_ids,
     has_user_role,
 )
+from app.services.avatar_storage import avatar_public_url
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/me", tags=["me"])
@@ -133,6 +143,7 @@ def get_my_children(db: DbSession = None, current_user: CurrentUser = None):
                 id=str(current_user.id),
                 name=current_user.name,
                 class_name=cls.name if cls else "",
+                avatar_url=avatar_public_url(current_user.avatar_path),
             )
         ]
     if has_user_role(db, current_user.id, "parent"):
@@ -153,6 +164,7 @@ def get_my_children(db: DbSession = None, current_user: CurrentUser = None):
                         id=str(u.id),
                         name=u.name,
                         class_name=cls.name if cls else "",
+                        avatar_url=avatar_public_url(u.avatar_path),
                     )
                 )
         return out
@@ -396,3 +408,86 @@ def get_my_progress(
             )
         )
     return result
+
+
+@router.get("/profile", response_model=ProfileResponse)
+def get_my_profile(db: DbSession = None, current_user: CurrentUser = None):
+    return build_profile_response(db, current_user)
+
+
+@router.patch("/profile", response_model=ProfileResponse)
+def update_my_profile(
+    body: ProfileUpdateRequest,
+    db: DbSession = None,
+    current_user: CurrentUser = None,
+):
+    if body.name is None and body.phone is None and body.birth_date is None:
+        raise HTTPException(status_code=400, detail="Нет полей для обновления")
+
+    if body.name is not None:
+        name = body.name.strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="Имя не может быть пустым")
+        current_user.name = name
+
+    if body.phone is not None:
+        phone = body.phone.strip()
+        current_user.phone = phone or None
+
+    if body.birth_date is not None:
+        current_user.birth_date = body.birth_date
+
+    db.commit()
+    db.refresh(current_user)
+    return build_profile_response(db, current_user)
+
+
+@router.post("/change-password", response_model=OkResponse)
+def change_my_password(
+    body: ChangePasswordRequest,
+    db: DbSession = None,
+    current_user: CurrentUser = None,
+):
+    if not verify_password(body.current_password, current_user.password_hash):
+        raise HTTPException(status_code=400, detail="Неверный текущий пароль")
+    if body.current_password == body.new_password:
+        raise HTTPException(
+            status_code=400,
+            detail="Новый пароль должен отличаться от текущего",
+        )
+    current_user.password_hash = hash_password(body.new_password)
+    revoke_all_refresh_tokens_for_user(db, current_user.id)
+    db.commit()
+    return OkResponse()
+
+
+@router.post("/avatar", response_model=ProfileResponse)
+async def upload_my_avatar(
+    file: UploadFile = File(...),
+    db: DbSession = None,
+    current_user: CurrentUser = None,
+):
+    if not file.content_type and not file.filename:
+        raise HTTPException(status_code=400, detail="Файл не передан")
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="Пустой файл")
+    relative_path = save_avatar_from_bytes(
+        current_user.id, data, file.content_type
+    )
+    current_user.avatar_path = relative_path
+    db.commit()
+    db.refresh(current_user)
+    return build_profile_response(db, current_user)
+
+
+@router.delete("/avatar", response_model=ProfileResponse)
+def delete_my_avatar(
+    db: DbSession = None,
+    current_user: CurrentUser = None,
+):
+    delete_avatar_file(current_user.id)
+    current_user.avatar_path = None
+    db.commit()
+    db.refresh(current_user)
+    return build_profile_response(db, current_user)

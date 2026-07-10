@@ -8,12 +8,26 @@ describe('me api', () => {
   it('Given /me/children payload When getMyChildren Then maps snake_case fields', async () => {
     server.use(
       http.get('/api/me/children', () =>
-        HttpResponse.json([{ id: 'c1', name: 'Аня', class_name: '3Б' }]),
+        HttpResponse.json([
+          {
+            id: 'c1',
+            name: 'Аня',
+            class_name: '3Б',
+            avatar_url: '/api/media/avatars/c1.webp?v=1',
+          },
+        ]),
       ),
     )
 
     const rows = await getMyChildren()
-    expect(rows).toEqual([{ id: 'c1', name: 'Аня', className: '3Б' }])
+    expect(rows).toEqual([
+      {
+        id: 'c1',
+        name: 'Аня',
+        className: '3Б',
+        avatarUrl: '/api/media/avatars/c1.webp?v=1',
+      },
+    ])
   })
 
   it('Given /me/schedule with query params When getMySchedule Then requests view and child_id', async () => {

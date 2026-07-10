@@ -3,11 +3,18 @@ import type { HomeworkItem } from '../types/homework'
 import type { SubjectProgress } from '../types/progress'
 import type { ScheduleItem } from '../types/schedule'
 
-export type ChildOption = { id: string; name: string; className: string }
+export type ChildOption = { id: string; name: string; className: string; avatarUrl?: string }
 
 export async function getMyChildren(): Promise<ChildOption[]> {
-  const { data } = await api.get<Array<{ id: string; name: string; class_name: string }>>('/me/children')
-  return data.map((c) => ({ id: c.id, name: c.name, className: c.class_name ?? '' }))
+  const { data } = await api.get<
+    Array<{ id: string; name: string; class_name: string; avatar_url?: string | null }>
+  >('/me/children')
+  return data.map((c) => ({
+    id: c.id,
+    name: c.name,
+    className: c.class_name ?? '',
+    ...(c.avatar_url ? { avatarUrl: c.avatar_url } : {}),
+  }))
 }
 
 export async function getMySchedule(
