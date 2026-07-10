@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 
 os.environ["ENVIRONMENT"] = "test"
+os.environ.setdefault("JWT_SECRET", "test-secret-at-least-32-bytes-long")
 # Как в CI (.github/workflows/ci.yml): без Redis лимитер не должен блокировать auth (503).
 os.environ.setdefault("RATE_LIMIT_FAIL_CLOSED", "false")
 

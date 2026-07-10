@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import io
+import os
+import tempfile
 from pathlib import Path
 from uuid import UUID
 
@@ -17,6 +19,7 @@ ALLOWED_IMAGE_CONTENT_TYPES = frozenset(
     }
 )
 ALLOWED_IMAGE_EXTENSIONS = frozenset({".jpg", ".jpeg", ".png", ".webp"})
+MAX_IMAGE_PIXELS = 25_000_000
 
 
 def media_root() -> Path:
@@ -38,8 +41,9 @@ def avatar_public_url(avatar_path: str | None) -> str | None:
         return None
     from app.services.media_signing import sign_media_url
 
-    base = f"/api/media/{avatar_path.lstrip('/')}"
-    path = media_root() / avatar_path
+    safe_path = avatar_path.lstrip("/")
+    base = f"/api/media/{safe_path}"
+    path = media_root() / safe_path
     if path.is_file():
         version = int(path.stat().st_mtime)
         base = f"{base}?v={version}"
@@ -71,6 +75,12 @@ def save_avatar_from_bytes(user_id: UUID, data: bytes, content_type: str | None)
 
     try:
         image = Image.open(io.BytesIO(data))
+        width, height = image.size
+        if width * height > MAX_IMAGE_PIXELS:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Изображение имеет слишком большое разрешение",
+            )
         image.load()
     except (UnidentifiedImageError, OSError) as exc:
         raise HTTPException(
@@ -84,7 +94,6 @@ def save_avatar_from_bytes(user_id: UUID, data: bytes, content_type: str | None)
             detail="Недопустимый формат. Разрешены JPEG, PNG и WebP",
         )
 
-    width, height = image.size
     if width < 64 or height < 64:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -103,7 +112,16 @@ def save_avatar_from_bytes(user_id: UUID, data: bytes, content_type: str | None)
     dest.parent.mkdir(parents=True, exist_ok=True)
     rgb = Image.new("RGB", image.size, (255, 255, 255))
     rgb.paste(image, mask=image.split()[3])
-    rgb.save(dest, format="WEBP", quality=85, method=6)
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=f".{user_id}-", suffix=".webp", dir=dest.parent
+    )
+    os.close(fd)
+    tmp_path = Path(tmp_name)
+    try:
+        rgb.save(tmp_path, format="WEBP", quality=85, method=6)
+        tmp_path.replace(dest)
+    finally:
+        tmp_path.unlink(missing_ok=True)
 
     return avatar_relative_path(user_id)
 
@@ -111,7 +129,9 @@ def save_avatar_from_bytes(user_id: UUID, data: bytes, content_type: str | None)
 def resolve_media_file(relative_path: str) -> Path:
     root = media_root().resolve()
     candidate = (root / relative_path).resolve()
-    if not str(candidate).startswith(str(root)):
+    try:
+        candidate.relative_to(root)
+    except ValueError:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
     if not candidate.is_file():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")

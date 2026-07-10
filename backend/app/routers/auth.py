@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.timeutil import now
 from app.deps import DbSession
-from app.models.user import User, PasswordResetToken
+from app.models.user import User, PasswordResetToken, RefreshToken
 from app.models.role_profiles import UserRole
 from app.schemas.auth import (
     LoginRequest,
@@ -27,7 +27,6 @@ from app.services.auth import (
     create_refresh_token,
     rotate_refresh_token,
     revoke_refresh_token,
-    revoke_all_refresh_tokens_for_user,
     decode_access_token,
 )
 from app.services.rate_limit import check_rate_limit
@@ -39,7 +38,6 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 REFRESH_COOKIE_NAME = "refresh_token"
 REFRESH_COOKIE_HTTPONLY = True
 REFRESH_COOKIE_SAMESITE = "lax"
-REFRESH_COOKIE_MAX_AGE_DAYS = 7
 
 
 def _client_ip(request: Request) -> str:
@@ -71,48 +69,55 @@ def _reject_or_revoke_new_refresh(
     db: Session,
     user: User,
     raw_new: str,
+    request: Request,
     response: Response,
 ) -> None:
     """Отклонённые и ожидающие: отзываем только что выданный refresh и cookie."""
     if user.role == "rejected" or has_user_role(db, user.id, "rejected"):
         revoke_refresh_token(db, _refresh_token_hash(raw_new))
-        _clear_refresh_cookie(response)
+        _clear_refresh_cookie(request, response)
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Доступ отклонён"
         )
     if user.role == "pending" or has_user_role(db, user.id, "pending"):
         revoke_refresh_token(db, _refresh_token_hash(raw_new))
-        _clear_refresh_cookie(response)
+        _clear_refresh_cookie(request, response)
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Учётная запись ожидает одобрения администратором",
         )
 
 
+def _refresh_cookie_secure(request: Request) -> bool:
+    if settings.environment_key == "production":
+        return True
+    return request.url.scheme == "https"
+
+
 def _set_refresh_cookie(request: Request, response: Response, raw_token: str) -> None:
     """
     Set refresh cookie.
 
-    Cookie `secure` flag is determined by the actual request scheme (taking into account
-    reverse proxies via X-Forwarded-Proto). This avoids issuing Secure cookies over
-    plain HTTP, which would then never be sent back by the browser and break refresh
-    flow after page reload.
+    Production sessions are always Secure. Development follows the ASGI request
+    scheme so local plain-HTTP login remains usable.
     """
-    # Prefer real scheme from proxy headers, fallback to request.url.scheme.
-    proto = request.headers.get("X-Forwarded-Proto") or request.url.scheme
-    secure = proto == "https"
     response.set_cookie(
         key=REFRESH_COOKIE_NAME,
         value=raw_token,
-        max_age=REFRESH_COOKIE_MAX_AGE_DAYS * 24 * 3600,
+        max_age=settings.refresh_token_expire_days * 24 * 3600,
         httponly=REFRESH_COOKIE_HTTPONLY,
         samesite=REFRESH_COOKIE_SAMESITE,
-        secure=secure,
+        secure=_refresh_cookie_secure(request),
     )
 
 
-def _clear_refresh_cookie(response: Response) -> None:
-    response.delete_cookie(REFRESH_COOKIE_NAME, samesite=REFRESH_COOKIE_SAMESITE)
+def _clear_refresh_cookie(request: Request, response: Response) -> None:
+    response.delete_cookie(
+        REFRESH_COOKIE_NAME,
+        httponly=REFRESH_COOKIE_HTTPONLY,
+        samesite=REFRESH_COOKIE_SAMESITE,
+        secure=_refresh_cookie_secure(request),
+    )
 
 
 def _get_refresh_token_from_cookie(request: Request) -> str | None:
@@ -193,13 +198,13 @@ def refresh(
     token_hash = _refresh_token_hash(raw)
     result = rotate_refresh_token(db, token_hash)
     if not result:
-        _clear_refresh_cookie(response)
+        _clear_refresh_cookie(request, response)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired refresh token",
         )
     raw_new, user = result
-    _reject_or_revoke_new_refresh(db, user, raw_new, response)
+    _reject_or_revoke_new_refresh(db, user, raw_new, request, response)
     _set_refresh_cookie(request, response, raw_new)
     access = create_access_token(str(user.id))
     return TokenResponse(
@@ -217,7 +222,7 @@ def logout(
     if raw:
         token_hash = _refresh_token_hash(raw)
         revoke_refresh_token(db, token_hash)
-    _clear_refresh_cookie(response)
+    _clear_refresh_cookie(request, response)
     return None
 
 
@@ -278,9 +283,13 @@ def reset_password(
             detail="Пользователь не найден",
         )
     user.password_hash = hash_password(body.password)
-    db.delete(pt)
+    db.query(PasswordResetToken).filter(
+        PasswordResetToken.user_id == user.id
+    ).delete(synchronize_session=False)
+    db.query(RefreshToken).filter(RefreshToken.user_id == user.id).update(
+        {"revoked": "Y"}, synchronize_session=False
+    )
     db.commit()
-    revoke_all_refresh_tokens_for_user(db, user.id)
     return OkResponse()
 
 
@@ -315,7 +324,7 @@ def me(
         result = rotate_refresh_token(db, token_hash)
         if result:
             raw_new, user = result
-            _reject_or_revoke_new_refresh(db, user, raw_new, response)
+            _reject_or_revoke_new_refresh(db, user, raw_new, request, response)
             _set_refresh_cookie(request, response, raw_new)
             access = create_access_token(str(user.id))
             return TokenResponse(

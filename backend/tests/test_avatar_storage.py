@@ -79,6 +79,16 @@ def test_save_avatar_rejects_too_small_image(media_tmp):
     assert "маленьк" in exc.value.detail.lower()
 
 
+def test_save_avatar_rejects_excessive_pixel_count(media_tmp, monkeypatch):
+    monkeypatch.setattr("app.services.avatar_storage.MAX_IMAGE_PIXELS", 9_999)
+
+    with pytest.raises(HTTPException) as exc:
+        save_avatar_from_bytes(uuid.uuid4(), _png_bytes(100), "image/png")
+
+    assert exc.value.status_code == 400
+    assert "разрешение" in exc.value.detail.lower()
+
+
 def test_avatar_public_url_none_when_no_path():
     assert avatar_public_url(None) is None
     assert avatar_public_url("") is None
@@ -93,6 +103,16 @@ def test_avatar_public_url_includes_cache_buster_when_file_exists(media_tmp):
     assert url.startswith(f"/api/media/avatars/{user_id}.webp?v=")
 
 
+def test_avatar_public_url_normalizes_leading_slash(media_tmp):
+    user_id = uuid.uuid4()
+    relative = save_avatar_from_bytes(user_id, _png_bytes(64), "image/png")
+
+    url = avatar_public_url(f"/{relative}")
+
+    assert url is not None
+    assert url.startswith(f"/api/media/avatars/{user_id}.webp?v=")
+
+
 def test_delete_avatar_file_removes_file(media_tmp):
     user_id = uuid.uuid4()
     save_avatar_from_bytes(user_id, _png_bytes(64), "image/png")
@@ -103,6 +123,17 @@ def test_delete_avatar_file_removes_file(media_tmp):
 def test_resolve_media_file_blocks_path_traversal(media_tmp):
     with pytest.raises(HTTPException) as exc:
         resolve_media_file("../../etc/passwd")
+
+    assert exc.value.status_code == 404
+
+
+def test_resolve_media_file_blocks_sibling_prefix_traversal(media_tmp):
+    sibling = media_tmp.parent / f"{media_tmp.name}_evil"
+    sibling.mkdir()
+    (sibling / "secret.webp").write_bytes(b"secret")
+
+    with pytest.raises(HTTPException) as exc:
+        resolve_media_file(f"../{sibling.name}/secret.webp")
 
     assert exc.value.status_code == 404
 

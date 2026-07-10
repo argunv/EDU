@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 
 import { apiLogin, apiLogout, apiMe, type LoginCredentials } from '../../api/auth'
-import { configureAuth } from '../../api/client'
+import { configureAuth, waitForAuthRefresh } from '../../api/client'
 import { type User } from '../../types/user'
 
 import { AuthContext, type AuthContextValue } from './authContextCore'
@@ -13,31 +13,44 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [ready, setReady] = useState(false)
   const tokenRef = useRef<string | null>(null)
+  const sessionVersionRef = useRef(0)
 
-  useEffect(() => {
-    tokenRef.current = accessToken
-  }, [accessToken])
+  const applySession = useCallback((token: string, nextUser: User) => {
+    tokenRef.current = token
+    setAccessToken(token)
+    setUser(nextUser)
+  }, [])
+
+  const clearSession = useCallback(() => {
+    sessionVersionRef.current += 1
+    tokenRef.current = null
+    setAccessToken(null)
+    setUser(null)
+    void queryClient.cancelQueries()
+    queryClient.clear()
+  }, [queryClient])
 
   useEffect(() => {
     configureAuth({
       getToken: () => tokenRef.current,
-      setToken: setAccessToken,
-      setUser,
-      logout: () => {
-        setAccessToken(null)
-        setUser(null)
+      setToken: (token) => {
+        tokenRef.current = token
+        setAccessToken(token)
       },
+      setUser,
+      logout: clearSession,
+      getSessionVersion: () => sessionVersionRef.current,
     })
-  }, [])
+  }, [clearSession])
 
   useEffect(() => {
     let cancelled = false
+    const sessionVersion = sessionVersionRef.current
     apiMe()
       .then((res) => {
-        if (cancelled) return
+        if (cancelled || sessionVersionRef.current !== sessionVersion) return
         if (res) {
-          setAccessToken(res.accessToken)
-          setUser(res.user)
+          applySession(res.accessToken, res.user)
           queryClient.invalidateQueries({ queryKey: ['me'] })
         }
         setReady(true)
@@ -48,36 +61,49 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true
     }
-  }, [queryClient])
+  }, [applySession, queryClient])
 
   const login = useCallback(
     async (credentials: LoginCredentials) => {
+      const sessionVersion = sessionVersionRef.current + 1
+      sessionVersionRef.current = sessionVersion
+      tokenRef.current = null
+      setAccessToken(null)
+      setUser(null)
+      void queryClient.cancelQueries()
+      queryClient.clear()
       const res = await apiLogin(credentials)
-      setAccessToken(res.accessToken)
-      setUser(res.user)
+      if (sessionVersionRef.current !== sessionVersion) return
+      applySession(res.accessToken, res.user)
+      setReady(true)
       queryClient.invalidateQueries({ queryKey: ['me'] })
     },
-    [queryClient],
+    [applySession, queryClient],
   )
 
-  const setUserFromToken = useCallback((token: string, u: User) => {
-    setAccessToken(token)
-    setUser(u)
-  }, [])
+  const setUserFromToken = useCallback(
+    (token: string, u: User) => {
+      sessionVersionRef.current += 1
+      void queryClient.cancelQueries()
+      queryClient.clear()
+      applySession(token, u)
+    },
+    [applySession, queryClient],
+  )
 
   const updateUser = useCallback((patch: Partial<User>) => {
     setUser((prev) => (prev ? { ...prev, ...patch } : prev))
   }, [])
 
   const logout = useCallback(async () => {
+    clearSession()
+    await waitForAuthRefresh()
     try {
       await apiLogout()
     } catch {
       // ignore
     }
-    setAccessToken(null)
-    setUser(null)
-  }, [])
+  }, [clearSession])
 
   const value = useMemo<AuthContextValue>(
     () => ({ user, accessToken, login, logout, setUserFromToken, updateUser, ready }),

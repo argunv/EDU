@@ -71,6 +71,7 @@ class Settings(BaseSettings):
     rate_limit_register: str = "3/60"
     rate_limit_forgot: str = "3/300"
     rate_limit_reset: str = "5/60"
+    rate_limit_change_password: str = "5/300"
     rate_limit_fail_closed: bool = True
 
     # User-generated media (avatars, school logos) — local filesystem volume in Docker.

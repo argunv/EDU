@@ -13,6 +13,13 @@ fail=0
 warn() { echo "WARN: $*" >&2; }
 die() { echo "ERROR: $*" >&2; fail=1; }
 
+env_mode="$(stat -c '%a' "$ENV_FILE" 2>/dev/null || stat -f '%Lp' "$ENV_FILE" 2>/dev/null || true)"
+if [[ -z "$env_mode" ]]; then
+  warn "could not determine $ENV_FILE permissions"
+elif (( (8#$env_mode & 8#077) != 0 )); then
+  die "$ENV_FILE permissions are $env_mode; run: chmod 600 $ENV_FILE"
+fi
+
 [[ "${ENVIRONMENT:-}" == "production" ]] || die "ENVIRONMENT must be production (got: ${ENVIRONMENT:-})"
 
 jwt="${JWT_SECRET:-}"
@@ -54,6 +61,16 @@ check_nonempty SMTP_USER
 check_nonempty SMTP_PASSWORD
 check_nonempty SMTP_FROM
 
+if [[ -n "${ADMIN_EMAIL:-}" || -n "${ADMIN_PASSWORD:-}" ]]; then
+  check_nonempty ADMIN_EMAIL
+  check_nonempty ADMIN_PASSWORD
+  admin_password="${ADMIN_PASSWORD:-}"
+  [[ ${#admin_password} -ge 12 ]] || die "ADMIN_PASSWORD must be at least 12 characters"
+  case "${ADMIN_PASSWORD:-}" in
+    *CHANGE_ME*|*change-me*|*dev-only*) die "ADMIN_PASSWORD still looks like a placeholder" ;;
+  esac
+fi
+
 case "${SMTP_HOST}" in
   localhost) warn "SMTP_HOST=localhost — password reset emails will not leave the host" ;;
 esac
@@ -66,10 +83,51 @@ cors="${CORS_ORIGINS:-}"
 case "$cors" in
   *localhost*) warn "CORS_ORIGINS contains localhost — unusual for production" ;;
 esac
+if ! python3 - "$frontend" "$cors" <<'PY'
+import json
+import sys
+
+frontend = sys.argv[1].rstrip("/")
+raw = sys.argv[2]
+try:
+    origins = json.loads(raw)
+except json.JSONDecodeError as exc:
+    raise SystemExit(f"CORS_ORIGINS is not valid JSON: {exc}") from exc
+if not isinstance(origins, list) or not all(isinstance(x, str) for x in origins):
+    raise SystemExit("CORS_ORIGINS must be a JSON array of strings")
+normalized = [x.rstrip("/") for x in origins]
+if "*" in normalized:
+    raise SystemExit("CORS_ORIGINS must not contain '*' in production")
+if frontend not in normalized:
+    raise SystemExit("CORS_ORIGINS must contain FRONTEND_URL")
+PY
+then
+  die "CORS_ORIGINS must be a JSON array containing FRONTEND_URL"
+fi
+
+if ! python3 <<'PY'
+import os
+from urllib.parse import unquote, urlsplit
+
+def check_url(name: str, expected_user: str, expected_password: str, expected_host: str) -> None:
+    parsed = urlsplit(os.environ.get(name, ""))
+    if unquote(parsed.username or "") != os.environ.get(expected_user, ""):
+        raise SystemExit(f"{name} user does not match {expected_user}")
+    if unquote(parsed.password or "") != os.environ.get(expected_password, ""):
+        raise SystemExit(f"{name} password does not match {expected_password}")
+    if parsed.hostname != expected_host:
+        raise SystemExit(f"{name} host must be {expected_host!r} for this Compose stack")
+
+check_url("DATABASE_URL", "POSTGRES_USER", "POSTGRES_PASSWORD", "postgres")
+check_url("RABBITMQ_URL", "RABBITMQ_USER", "RABBITMQ_PASSWORD", "rabbitmq")
+PY
+then
+  die "DATABASE_URL / RABBITMQ_URL must match the service credentials"
+fi
 
 if [[ $fail -ne 0 ]]; then
-  echo "Fix .env and re-run ./scripts/check-env.sh" >&2
+  echo "Fix $ENV_FILE and re-run ./scripts/check-env.sh" >&2
   exit 1
 fi
 
-echo "OK: .env looks production-ready"
+echo "OK: $ENV_FILE looks production-ready"

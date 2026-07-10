@@ -1,24 +1,28 @@
 #!/usr/bin/env bash
 # Generate strong secrets into .env (creates from .env.production.example if missing).
 set -euo pipefail
+umask 077
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$ROOT"
+# shellcheck source=scripts/_lib.sh
+source "$ROOT/scripts/_lib.sh"
 
 rand() {
-  openssl rand -base64 48 | tr -d '\n/+=' | head -c 48
+  openssl rand -hex 32
 }
 
-if [[ ! -f .env ]]; then
-  cp .env.production.example .env
-  echo "Created .env from .env.production.example"
+if [[ ! -f "$ENV_FILE" ]]; then
+  cp .env.production.example "$ENV_FILE"
+  echo "Created $ENV_FILE from .env.production.example"
 fi
+chmod 600 "$ENV_FILE"
 
 export GEN_JWT
 export GEN_DB
 export GEN_MQ
 export GEN_ADMIN
 export GEN_GRAFANA
+export ENV_FILE
 GEN_JWT="$(rand)"
 GEN_DB="$(rand)"
 GEN_MQ="$(rand)"
@@ -28,6 +32,7 @@ GEN_GRAFANA="$(rand)"
 python3 <<'PY'
 import os, re
 from pathlib import Path
+from urllib.parse import quote
 
 jwt = os.environ["GEN_JWT"]
 db = os.environ["GEN_DB"]
@@ -35,7 +40,7 @@ mq = os.environ["GEN_MQ"]
 admin = os.environ["GEN_ADMIN"]
 grafana = os.environ["GEN_GRAFANA"]
 
-path = Path(".env")
+path = Path(os.environ["ENV_FILE"])
 text = path.read_text(encoding="utf-8")
 
 def set_key(text: str, key: str, value: str) -> str:
@@ -45,7 +50,7 @@ def set_key(text: str, key: str, value: str) -> str:
         return pattern.sub(line, text)
     return text.rstrip() + "\n" + line + "\n"
 
-weak = ("CHANGE_ME", "dev-only", "postgres", "edu_mq_dev_pass", "change-me")
+weak = ("change_me", "dev-only", "postgres", "edu_mq_dev_pass", "change-me")
 
 def needs_replace(key: str, current: str) -> bool:
     cur = (current or "").strip().strip("'\"")
@@ -90,14 +95,17 @@ mq_pass = vals2.get("RABBITMQ_PASSWORD", mq)
 text = set_key(
     text,
     "DATABASE_URL",
-    f"postgresql+psycopg2://{pg_user}:{db_pass}@postgres:5432/{pg_db}",
+    "postgresql+psycopg2://"
+    f"{quote(pg_user, safe='')}:{quote(db_pass, safe='')}@postgres:5432/"
+    f"{quote(pg_db, safe='')}",
 )
 text = set_key(
     text,
     "RABBITMQ_URL",
-    f"amqp://{mq_u}:{mq_pass}@rabbitmq:5672/",
+    f"amqp://{quote(mq_u, safe='')}:{quote(mq_pass, safe='')}@rabbitmq:5672/",
 )
 print("synced DATABASE_URL and RABBITMQ_URL")
 path.write_text(text, encoding="utf-8")
+path.chmod(0o600)
 print("Done. Edit DOMAIN / FRONTEND_URL / CORS_ORIGINS / SMTP_* then run ./scripts/check-env.sh")
 PY

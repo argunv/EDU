@@ -9,22 +9,26 @@ let getToken: (() => string | null) | null = null
 let setToken: ((t: string) => void) | null = null
 let setUser: ((u: User) => void) | null = null
 let logoutCallback: (() => void) | null = null
+let getSessionVersion: (() => number) | null = null
 
 export function configureAuth(config: {
   getToken: () => string | null
   setToken: (t: string) => void
   setUser: (u: User) => void
   logout: () => void
+  getSessionVersion?: () => number
 }) {
   getToken = config.getToken
   setToken = config.setToken
   setUser = config.setUser
   logoutCallback = config.logout
+  getSessionVersion = config.getSessionVersion ?? null
 }
 
 export const api: AxiosInstance = axios.create({
   baseURL,
   withCredentials: true,
+  timeout: 15_000,
   headers: { 'Content-Type': 'application/json' },
 })
 
@@ -37,7 +41,17 @@ api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
 })
 
 let refreshing = false
-let queue: Array<{ resolve: (value: unknown) => void; reject: (reason?: unknown) => void }> = []
+const queue: Array<{ resolve: (value: unknown) => void; reject: (reason?: unknown) => void }> = []
+let activeRefresh: Promise<void> | null = null
+
+export async function waitForAuthRefresh(): Promise<void> {
+  if (!activeRefresh) return
+  try {
+    await activeRefresh
+  } catch {
+    // Logout must still reach the server after a failed refresh.
+  }
+}
 
 const rawUserSchema = z.object({
   id: z.string(),
@@ -68,44 +82,55 @@ api.interceptors.response.use(
       }
       originalRequest._retry = true
       refreshing = true
+      const sessionVersion = getSessionVersion?.() ?? 0
       try {
-        const { data } = await axios.post(
-          `${baseURL}/auth/refresh`,
-          {},
-          { withCredentials: true }
-        )
-        const parsed = refreshSchema.safeParse(data)
-        if (!parsed.success) {
-          throw new Error('Invalid refresh response format')
-        }
-        const raw = parsed.data.access_token ?? parsed.data.accessToken
-        const accessToken =
-          typeof raw === 'string' && raw.trim() !== '' ? raw.trim() : null
-        if (!accessToken) {
-          throw new Error('Refresh response missing access token')
-        }
-        const user = parsed.data.user
-        setToken?.(accessToken)
-        if (setUser && user) {
-          setUser({
-            id: user.id,
-            name: user.name,
-            role: user.role,
-            ...(user.email ? { email: user.email } : {}),
-            ...(user.class_name !== undefined && { className: user.class_name }),
-            ...(user.parent_names !== undefined && { parentNames: user.parent_names }),
-          })
-        }
-        queue.forEach((q) => q.resolve(undefined))
-        queue = []
+        let refreshedToken = ''
+        activeRefresh = (async () => {
+          const { data } = await axios.post(
+            `${baseURL}/auth/refresh`,
+            {},
+            { withCredentials: true },
+          )
+          const parsed = refreshSchema.safeParse(data)
+          if (!parsed.success) {
+            throw new Error('Invalid refresh response format')
+          }
+          const raw = parsed.data.access_token ?? parsed.data.accessToken
+          const accessToken =
+            typeof raw === 'string' && raw.trim() !== '' ? raw.trim() : null
+          if (!accessToken) {
+            throw new Error('Refresh response missing access token')
+          }
+          if ((getSessionVersion?.() ?? 0) !== sessionVersion) {
+            throw new Error('Auth session changed during refresh')
+          }
+          const user = parsed.data.user
+          refreshedToken = accessToken
+          setToken?.(accessToken)
+          if (setUser && user) {
+            setUser({
+              id: user.id,
+              name: user.name,
+              role: user.role,
+              ...(user.email ? { email: user.email } : {}),
+              ...(user.class_name !== undefined && { className: user.class_name }),
+              ...(user.parent_names !== undefined && { parentNames: user.parent_names }),
+            })
+          }
+        })()
+        await activeRefresh
+        queue.splice(0).forEach((q) => q.resolve(undefined))
+        const accessToken = refreshedToken
         originalRequest.headers.Authorization = `Bearer ${accessToken}`
         return api(originalRequest)
       } catch (refreshError) {
-        queue.forEach((q) => q.reject(refreshError))
-        queue = []
-        logoutCallback?.()
+        queue.splice(0).forEach((q) => q.reject(refreshError))
+        if ((getSessionVersion?.() ?? 0) === sessionVersion) {
+          logoutCallback?.()
+        }
         return Promise.reject(refreshError)
       } finally {
+        activeRefresh = null
         refreshing = false
       }
     }

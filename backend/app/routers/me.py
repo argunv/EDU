@@ -2,11 +2,13 @@ import logging
 from datetime import date, timedelta
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, HTTPException, Query, UploadFile, File
+from fastapi import APIRouter, HTTPException, Query, Request, UploadFile, File
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
+from app.core.timeutil import app_today
 from app.deps import CurrentUser, DbSession
+from app.core.config import settings
 from app.models.user import User
 from app.models.class_model import Class
 from app.models.schedule import ScheduleSlot
@@ -26,6 +28,7 @@ from app.schemas.profile import (
     ProfileUpdateRequest,
 )
 from app.services.auth import hash_password, verify_password, revoke_all_refresh_tokens_for_user
+from app.services.rate_limit import check_rate_limit
 from app.services.profile import build_profile_response
 from app.services.avatar_storage import delete_avatar_file, save_avatar_from_bytes
 from app.services.relation_access import (
@@ -280,7 +283,7 @@ def get_my_homework(
         raise HTTPException(
             status_code=404, detail="Класс в архиве, домашние задания недоступны"
         )
-    today = date.today()
+    today = app_today()
     if range_filter == "today":
         start = today
         end = today
@@ -445,9 +448,16 @@ def update_my_profile(
 @router.post("/change-password", response_model=OkResponse)
 def change_my_password(
     body: ChangePasswordRequest,
+    request: Request,
     db: DbSession = None,
     current_user: CurrentUser = None,
 ):
+    client_ip = request.client.host if request.client else "unknown"
+    check_rate_limit(
+        "change_password",
+        f"{current_user.id}:{client_ip}",
+        settings.rate_limit_change_password,
+    )
     if not verify_password(body.current_password, current_user.password_hash):
         raise HTTPException(status_code=400, detail="Неверный текущий пароль")
     if body.current_password == body.new_password:
